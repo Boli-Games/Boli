@@ -14,6 +14,7 @@ import {
 } from "./sim/types";
 import { missionSummary } from "./sim/game";
 import { skinById } from "./profile";
+import { createSky } from "./view/sky";
 
 const BOLI_COLOR = 0xe4d2b2;
 const BOLI_SHADE = 0xc9b48a;
@@ -69,8 +70,6 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87a08c);
-  scene.fog = new THREE.Fog(0x87a08c, 180, 720);
 
   const fpsCamera = new THREE.PerspectiveCamera(70, 1, 0.2, 900);
   fpsCamera.rotation.order = "YXZ";
@@ -95,7 +94,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   const raycaster = new THREE.Raycaster();
   const centerNdc = new THREE.Vector2(0, 0);
 
-  addLights(scene);
+  const sky = createSky(scene, fpsCamera);
   const hud = bindHud();
   const beacon = makeBeacon();
   beacon.visible = false;
@@ -250,6 +249,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     trackedHp = localHp;
     hud.hurt.style.opacity = String(Math.max(0, (hurtUntil - state.clock) / 0.45));
 
+    sky.update(state.timeLeft, state.worldMinute);
     updateBeacon(beacon, state, opts);
     updateWaypoint(fpsCamera, hud, state, opts);
     updateHud(hud, state, opts, activeHunter, localEntity);
@@ -290,16 +290,6 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 
   resize();
   return { resize, rebuild, render, pickAimedEntity, playShot: shotFx.play };
-}
-
-function addLights(scene: THREE.Scene): void {
-  const hemi = new THREE.HemisphereLight(0xe8f0e6, 0x3d4338, 0.95);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff4d6, 1.35);
-  sun.position.set(80, 140, 40);
-  scene.add(sun);
-  const fill = new THREE.AmbientLight(0x6d7a68, 0.35);
-  scene.add(fill);
 }
 
 function buildWorld(root: THREE.Group, state: GameState): void {

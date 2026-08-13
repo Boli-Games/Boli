@@ -1,7 +1,9 @@
 import { enterWander, startleCrowd, tickBolis } from "./boliAi";
+import { clockAllowsTimerWin, clockTickDelta } from "./debugClock";
 import { createHunter, tickHunterAi, tickHunterControlled, type HunterInput } from "./hunter";
 import { tickInfiltrator, type InfiltratorInput } from "./infiltrator";
 import { RHYTHM, ROUND, VIEW, type Entity, type GameState, type Hunter } from "./types";
+import { worldMinuteFromTimeLeft, wrapMinute, WORLD_MINUTES_PER_SECOND } from "./worldClock";
 import { createAmmoCrates, createObjectives, createWorld, randomWalkablePoint, sampleHeight } from "./world";
 
 export type CreateGameOpts = {
@@ -74,6 +76,7 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
     extraHunters: [],
     objectives: createObjectives(),
     timeLeft: ROUND.duration,
+    worldMinute: 0,
     phase: "PLAYING",
     revealTtl: 0,
     shotKick: 0,
@@ -136,10 +139,14 @@ export function tickGame(
   tickIsolation(state, dt);
   tickAmmoPickups(state);
 
-  state.timeLeft -= dt;
+  const dtClock = clockTickDelta(dt);
+  state.timeLeft -= dtClock;
+  state.worldMinute = wrapMinute((state.worldMinute ?? 0) + dtClock * WORLD_MINUTES_PER_SECOND);
   if (state.timeLeft <= 0) {
     state.timeLeft = 0;
-    state.phase = "INFILTRATOR_WIN";
+    if (clockAllowsTimerWin()) {
+      state.phase = "INFILTRATOR_WIN";
+    }
   }
 }
 
@@ -399,6 +406,9 @@ export function applySnapshot(
   const world = state.world;
   Object.assign(state, snapshot);
   state.world = world;
+  if (typeof state.worldMinute !== "number") {
+    state.worldMinute = worldMinuteFromTimeLeft(state.timeLeft);
+  }
   if (keptHunterCopy && localId) {
     const next = hunterForController(state, localId);
     if (next) {
