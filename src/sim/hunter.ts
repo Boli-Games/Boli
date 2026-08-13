@@ -1,5 +1,5 @@
 import { angleTo, applyVertical, assignPose, moveByVelocity, moveToward, readPose, settle } from "./physics";
-import { ROUND, RHYTHM, type GameState, type Hunter } from "./types";
+import { locomotionSpeed, ROUND, RHYTHM, type GameState, type Hunter } from "./types";
 import { randomWalkablePoint } from "./world";
 
 export type HunterInput = {
@@ -7,6 +7,8 @@ export type HunterInput = {
   strafe: number;
   yaw: number;
   pitch: number;
+  sprint: boolean;
+  crouch: boolean;
 };
 
 export function createHunter(
@@ -94,15 +96,17 @@ export function tickHunterControlled(
     return;
   }
 
+  const speed = locomotionSpeed({ sprint: input.sprint, crouch: input.crouch });
   const vx = Math.cos(input.yaw) * input.forward + -Math.sin(input.yaw) * input.strafe;
   const vy = Math.sin(input.yaw) * input.forward + Math.cos(input.yaw) * input.strafe;
   const len = Math.hypot(vx, vy) || 1;
   const next = moveByVelocity(
     state.world,
     readPose(hunter),
-    (vx / len) * RHYTHM.speed,
-    (vy / len) * RHYTHM.speed,
+    (vx / len) * speed,
+    (vy / len) * speed,
     dt,
+    speed,
   );
   assignPose(hunter, next);
   hunter.state = "WANDER";

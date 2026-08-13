@@ -1,11 +1,13 @@
 import { applyVertical, assignPose, moveByVelocity, readPose } from "./physics";
-import { RHYTHM, type Entity, type GameState } from "./types";
+import { locomotionSpeed, RHYTHM, type Entity, type GameState } from "./types";
 
 export type InfiltratorInput = {
   forward: number;
   strafe: number;
   yaw: number;
   boliMode: boolean;
+  sprint: boolean;
+  crouch: boolean;
 };
 
 export function tickInfiltrator(
@@ -33,15 +35,17 @@ export function tickInfiltrator(
   player.lookAngle = input.yaw;
 
   if (moving) {
+    const speed = locomotionSpeed({ sprint: input.sprint, crouch: input.crouch });
     const vx = Math.cos(input.yaw) * input.forward + -Math.sin(input.yaw) * input.strafe;
     const vy = Math.sin(input.yaw) * input.forward + Math.cos(input.yaw) * input.strafe;
     const len = Math.hypot(vx, vy) || 1;
     const next = moveByVelocity(
       state.world,
       readPose(player),
-      (vx / len) * RHYTHM.speed,
-      (vy / len) * RHYTHM.speed,
+      (vx / len) * speed,
+      (vy / len) * speed,
       dt,
+      speed,
     );
     assignPose(player, next);
     player.state = "WANDER";
@@ -112,6 +116,7 @@ function applyBoliMode(
     (vx / len) * RHYTHM.speed,
     (vy / len) * RHYTHM.speed,
     dt,
+    RHYTHM.speed,
   );
   assignPose(player, next);
   player.angle = yaw;

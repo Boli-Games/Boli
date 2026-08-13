@@ -47,6 +47,8 @@ export function emptyInput(): NetInput {
     yaw: 0,
     pitch: 0,
     boliMode: false,
+    sprint: false,
+    crouch: false,
     shoot: false,
     targetId: null,
   };

@@ -44,6 +44,7 @@ export function moveByVelocity(
   vx: number,
   vy: number,
   dt: number,
+  maxSpeed: number = RHYTHM.speed,
 ): Pose {
   const airborne = pose.z > supportHeight(world, pose.x, pose.y, pose.z, pose.layer) + 1;
   const control = airborne ? RHYTHM.fallControl : 1;
@@ -51,7 +52,7 @@ export function moveByVelocity(
   if (len < 0.001) {
     return applyVertical(world, pose, dt);
   }
-  const cap = RHYTHM.speed * control;
+  const cap = maxSpeed * control;
   const scale = len > cap ? cap / len : 1;
   const nx = pose.x + vx * scale * dt;
   const ny = pose.y + vy * scale * dt;

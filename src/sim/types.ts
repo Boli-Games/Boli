@@ -169,6 +169,8 @@ export type GameState = {
 /** Ritmo compartido: un solo lugar para tunear. */
 export const RHYTHM = {
   speed: 24,
+  sprintMul: 1.55,
+  crouchMul: 0.55,
   radius: 5.5,
   pauseMin: 1.2,
   pauseMax: 2.0,
@@ -218,6 +220,20 @@ export const ROUND = {
 
 export const VIEW = {
   eyeHeight: 15,
+  crouchEyeHeight: 8.5,
   bodyHeight: 16,
   lookSensitivity: 0.0022,
 } as const;
+
+export function locomotionSpeed(opts: { sprint: boolean; crouch: boolean; blend?: boolean }): number {
+  if (opts.blend) {
+    return RHYTHM.speed;
+  }
+  if (opts.crouch) {
+    return RHYTHM.speed * RHYTHM.crouchMul;
+  }
+  if (opts.sprint) {
+    return RHYTHM.speed * RHYTHM.sprintMul;
+  }
+  return RHYTHM.speed;
+}

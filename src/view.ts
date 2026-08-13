@@ -13,11 +13,13 @@ import {
   type Ramp,
 } from "./sim/types";
 import { missionSummary } from "./sim/game";
+import { skinById } from "./profile";
 
 const BOLI_COLOR = 0xe4d2b2;
 const BOLI_SHADE = 0xc9b48a;
 const HUNTER_COLOR = 0x3c342c;
 const HUNTER_SHADE = 0x5a4c40;
+const wayNdc = new THREE.Vector3();
 
 type Hud = {
   time: HTMLElement;
@@ -33,6 +35,10 @@ type Hud = {
   lockBody: HTMLElement;
   end: HTMLElement;
   endTitle: HTMLElement;
+  hurt: HTMLElement;
+  way: HTMLElement;
+  wayNeedle: HTMLElement;
+  wayMeta: HTMLElement;
 };
 
 export type ViewOpts = {
@@ -40,10 +46,13 @@ export type ViewOpts = {
   yaw: number;
   pitch: number;
   boliMode: boolean;
+  crouch: boolean;
   pointerLocked: boolean;
   localId?: string;
   hunterIndex?: number;
   online?: boolean;
+  hunterSkinId?: string;
+  paused?: boolean;
 };
 
 export type GameView = {
@@ -85,7 +94,12 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 
   addLights(scene);
   const hud = bindHud();
+  const beacon = makeBeacon();
+  beacon.visible = false;
+  scene.add(beacon);
   let builtWorldKey = "";
+  let trackedHp = -1;
+  let hurtUntil = 0;
 
   function ensureWorld(state: GameState): void {
     const key = `${state.world.width}x${state.world.height}`;
@@ -121,6 +135,8 @@ export function createView(canvas: HTMLCanvasElement): GameView {
       extraMeshes.push(mesh);
       characterRoot.add(mesh);
     }
+    trackedHp = -1;
+    hurtUntil = 0;
   }
 
   function resize(): void {
@@ -139,11 +155,13 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     pitch: number,
     walkTime: number,
     walking: boolean,
+    crouch = false,
   ): void {
-    const bob = walking
+    const eye = crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight;
+    const bob = walking && !crouch
       ? Math.abs(Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
       : 0;
-    fpsCamera.position.set(x, groundZ + VIEW.eyeHeight + bob, z);
+    fpsCamera.position.set(x, groundZ + eye + bob, z);
     fpsCamera.rotation.y = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
     fpsCamera.rotation.x = pitch;
     fpsCamera.rotation.z = 0;
@@ -182,6 +200,14 @@ export function createView(canvas: HTMLCanvasElement): GameView {
       }
     });
 
+    const skin = skinById(opts.hunterSkinId ?? "oak");
+    if (hunterMesh) {
+      tintPerson(hunterMesh, skin.color, skin.shade);
+    }
+    for (const mesh of extraMeshes) {
+      tintPerson(mesh, skin.color, skin.shade);
+    }
+
     if (opts.role === "HUNTER") {
       const walking = activeHunter.state === "WANDER";
       placeCamera(
@@ -192,17 +218,37 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         opts.pitch + state.shotKick * 0.18,
         activeHunter.walkTime,
         walking,
+        opts.crouch,
       );
       viewmodel.visible = true;
       viewmodel.rotation.x = 0.12 + state.shotKick * 0.12;
       viewmodel.position.set(0.24, -0.3 - state.shotKick * 0.04, -0.46);
     } else if (localEntity) {
       const walking = localEntity.state === "WANDER";
-      placeCamera(localEntity.x, localEntity.y, localEntity.z, opts.yaw, opts.pitch, localEntity.walkTime, walking);
+      placeCamera(
+        localEntity.x,
+        localEntity.y,
+        localEntity.z,
+        opts.yaw,
+        opts.pitch,
+        localEntity.walkTime,
+        walking,
+        opts.crouch,
+      );
       viewmodel.visible = false;
     }
 
-    updateHud(hud, state, opts, activeHunter);
+    const localHp =
+      opts.role === "HUNTER" ? activeHunter.hp : (localEntity && !localEntity.downed ? localEntity.hp : 0);
+    if (trackedHp >= 0 && localHp < trackedHp) {
+      hurtUntil = state.clock + 0.45;
+    }
+    trackedHp = localHp;
+    hud.hurt.style.opacity = String(Math.max(0, (hurtUntil - state.clock) / 0.45));
+
+    updateBeacon(beacon, state, opts);
+    updateWaypoint(fpsCamera, hud, state, opts);
+    updateHud(hud, state, opts, activeHunter, localEntity);
     renderer.render(scene, fpsCamera);
   }
 
@@ -490,30 +536,138 @@ function box(
   return mesh;
 }
 
+function sausage(mat: THREE.Material, radius: number, length: number): THREE.Mesh {
+  return new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), mat);
+}
+
 function makePerson(color: number, shade: number, hunter: boolean): THREE.Group {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color });
   const shadeMat = new THREE.MeshLambertMaterial({ color: shade });
-  const radius = 2.6;
-  const torso = 6.6;
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(radius, torso, 4, 10), bodyMat);
-  body.position.y = radius + torso * 0.5;
-  const headR = 2.4;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 12, 10), bodyMat);
-  head.position.y = radius + torso + headR * 0.85;
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.85, 2.1, 8), shadeMat);
-  nose.rotation.x = Math.PI / 2;
-  nose.position.set(0, head.position.y, headR + 0.5);
-  group.add(body, head, nose);
+  const dark = new THREE.MeshLambertMaterial({ color: 0x1c1914 });
+
+  const hipY = 6.55;
+  const hips = new THREE.Group();
+  hips.position.y = hipY;
+  group.add(hips);
+
+  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(1.55, 10, 8), bodyMat);
+  pelvis.scale.set(1.2, 0.72, 1.0);
+  hips.add(pelvis);
+
+  const torsoR = 1.9;
+  const torso = sausage(bodyMat, torsoR, 3.15);
+  torso.position.y = 2.35;
+  hips.add(torso);
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1.55, 10, 8), shadeMat);
+  belly.scale.set(1.12, 0.72, 0.92);
+  belly.position.set(0, 1.55, 0.35);
+  hips.add(belly);
+
+  const headR = 2.2;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 14, 12), bodyMat);
+  head.position.y = 5.85;
+  hips.add(head);
+
+  const eyeGeo = new THREE.SphereGeometry(0.28, 8, 6);
+  const leftEye = new THREE.Mesh(eyeGeo, dark);
+  leftEye.position.set(-0.62, 0.18, headR - 0.32);
+  const rightEye = new THREE.Mesh(eyeGeo, dark);
+  rightEye.position.set(0.62, 0.18, headR - 0.32);
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), dark);
+  mouth.scale.set(1.45, 0.42, 0.55);
+  mouth.position.set(0, -0.58, headR - 0.38);
+  head.add(leftEye, rightEye, mouth);
+
   if (hunter) {
-    const gun = makeShotgun(0.85);
-    gun.position.set(2.1, 7.2, 2.0);
-    gun.rotation.set(0.12, 0.15, 0.35);
-    group.add(gun);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.92, 12, 8), shadeMat);
+    hair.scale.set(1.02, 0.55, 1.02);
+    hair.position.y = 0.95;
+    head.add(hair);
   }
+
+  const makeArm = (side: number): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * (torsoR + 0.28), 3.55, 0);
+    pivot.rotation.z = side * 0.22;
+    const upper = sausage(bodyMat, 0.7, 2.35);
+    upper.position.y = -1.45;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.82, 8, 6), bodyMat);
+    hand.position.y = -3.15;
+    pivot.add(upper, hand);
+    hips.add(pivot);
+    return pivot;
+  };
+
+  const leftArm = makeArm(-1);
+  const rightArm = makeArm(1);
+
+  const makeLeg = (side: number): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.9, 0.1, 0);
+    const thigh = sausage(bodyMat, 0.88, 2.55);
+    thigh.position.y = -1.55;
+    const shin = sausage(bodyMat, 0.78, 2.35);
+    shin.position.y = -4.15;
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.82, 8, 6), bodyMat);
+    foot.scale.set(1.05, 0.52, 1.45);
+    foot.position.set(0, -hipY + 0.42, 0.38);
+    pivot.add(thigh, shin, foot);
+    hips.add(pivot);
+    return pivot;
+  };
+
+  const leftLeg = makeLeg(-1);
+  const rightLeg = makeLeg(1);
+
+  if (hunter) {
+    const gun = makeShotgun(0.72);
+    gun.position.set(0.1, -3.05, 1.15);
+    gun.rotation.set(1.15, 0.08, 0.12);
+    rightArm.add(gun);
+  }
+
   group.userData.head = head;
-  group.userData.body = body;
+  group.userData.body = torso;
+  group.userData.bodyMat = bodyMat;
+  group.userData.shadeMat = shadeMat;
+  group.userData.leftArm = leftArm;
+  group.userData.rightArm = rightArm;
+  group.userData.leftLeg = leftLeg;
+  group.userData.rightLeg = rightLeg;
   return group;
+}
+
+function tintPerson(mesh: THREE.Group, color: number, shade: number): void {
+  const bodyMat = mesh.userData.bodyMat as THREE.MeshLambertMaterial | undefined;
+  const shadeMat = mesh.userData.shadeMat as THREE.MeshLambertMaterial | undefined;
+  bodyMat?.color.setHex(color);
+  shadeMat?.color.setHex(shade);
+}
+
+function makeBeacon(): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xe6d39a, transparent: true, opacity: 0.55 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(6.4, 0.38, 8, 28), mat);
+  ring.rotation.x = Math.PI / 2;
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 26, 8), mat);
+  shaft.position.y = 13;
+  group.add(ring, shaft);
+  return group;
+}
+
+function updateBeacon(beacon: THREE.Group, state: GameState, opts: ViewOpts): void {
+  const next = state.objectives.find((objective) => !objective.done);
+  const show = opts.role === "INFILTRATOR" && Boolean(next) && state.phase === "PLAYING";
+  beacon.visible = show;
+  if (!show || !next) {
+    return;
+  }
+  beacon.position.set(next.x, next.z + 2, next.y);
+  beacon.rotation.y = state.clock * 1.4;
+  const pulse = 0.88 + Math.sin(state.clock * 4.2) * 0.12;
+  beacon.scale.setScalar(pulse);
 }
 
 function makeShotgun(scale: number): THREE.Group {
@@ -541,18 +695,39 @@ function makeShotgun(scale: number): THREE.Group {
   return gun;
 }
 
+function poseLimbs(mesh: THREE.Group, walking: boolean, walkTime: number, downed: boolean): void {
+  const swing = walking && !downed ? Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2) : 0;
+  const leftArm = mesh.userData.leftArm as THREE.Group | undefined;
+  const rightArm = mesh.userData.rightArm as THREE.Group | undefined;
+  const leftLeg = mesh.userData.leftLeg as THREE.Group | undefined;
+  const rightLeg = mesh.userData.rightLeg as THREE.Group | undefined;
+  if (leftArm) {
+    leftArm.rotation.x = swing * 0.7;
+  }
+  if (rightArm) {
+    rightArm.rotation.x = -swing * 0.7;
+  }
+  if (leftLeg) {
+    leftLeg.rotation.x = -swing * 0.55;
+  }
+  if (rightLeg) {
+    rightLeg.rotation.x = swing * 0.55;
+  }
+}
+
 function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock: number): void {
   const walking =
     !entity.downed &&
     (entity.state === "WANDER" || entity.state === "REACT" || (entity.state === "REGROUP" && !isHolding(entity)));
   const bounce = walking
-    ? Math.abs(Math.sin((entity.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp
+    ? Math.abs(Math.sin((entity.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   const stumble = entity.stumbleTtl > 0 ? Math.sin(clock * 18) * 0.18 : 0;
   mesh.position.set(entity.x, entity.z + bounce, entity.y);
   mesh.rotation.x = entity.downed ? Math.PI / 2 : 0;
   mesh.rotation.y = Math.atan2(Math.cos(entity.angle), Math.sin(entity.angle));
   mesh.rotation.z = stumble;
+  poseLimbs(mesh, walking, entity.walkTime, entity.downed);
   const body = mesh.userData.body as THREE.Mesh;
   const mat = body.material as THREE.MeshLambertMaterial;
   mat.emissive.setHex(revealed ? 0x661111 : 0x000000);
@@ -561,10 +736,11 @@ function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock:
 function syncHunter(mesh: THREE.Group, hunter: Hunter): void {
   const walking = hunter.state === "WANDER";
   const bounce = walking
-    ? Math.abs(Math.sin((hunter.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp
+    ? Math.abs(Math.sin((hunter.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   mesh.position.set(hunter.x, hunter.z + bounce, hunter.y);
   mesh.rotation.y = Math.atan2(Math.cos(hunter.angle), Math.sin(hunter.angle));
+  poseLimbs(mesh, walking, hunter.walkTime, false);
 }
 
 function isHolding(entity: Entity): boolean {
@@ -588,6 +764,10 @@ function bindHud(): Hud {
     lockBody: lock.querySelector("p") ?? lock,
     end,
     endTitle: end.querySelector("h1") ?? end,
+    hurt: must("#hurt"),
+    way: must("#way"),
+    wayNeedle: must("#wayNeedle"),
+    wayMeta: must("#wayMeta"),
   };
 }
 
@@ -599,7 +779,20 @@ function must(selector: string): HTMLElement {
   return el;
 }
 
-function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hunter): void {
+function setHpBar(hud: Hud, ratio: number): void {
+  hud.hpWrap.classList.remove("hidden");
+  hud.hpFill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
+  hud.hpFill.classList.toggle("mid", ratio <= 0.5 && ratio > 0.25);
+  hud.hpFill.classList.toggle("low", ratio <= 0.25);
+}
+
+function updateHud(
+  hud: Hud,
+  state: GameState,
+  opts: ViewOpts,
+  activeHunter: Hunter,
+  localEntity: Entity | undefined,
+): void {
   hud.time.textContent = formatTime(state.timeLeft);
   const mission = missionSummary(state);
   if (state.behaviorCheck) {
@@ -611,29 +804,29 @@ function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hun
   if (opts.role === "HUNTER") {
     hud.mode.textContent = `${state.accusationsLeft} cartuchos`;
     hud.mode.classList.toggle("on", state.accusationsLeft > 0);
-    hud.hpWrap.classList.remove("hidden");
-    const hpRatio = activeHunter.hp / ROUND.hunterHp;
-    hud.hpFill.style.width = `${Math.max(0, Math.min(100, hpRatio * 100))}%`;
-    hud.hpFill.classList.toggle("mid", hpRatio <= 0.5 && hpRatio > 0.25);
-    hud.hpFill.classList.toggle("low", hpRatio <= 0.25);
-    hud.hint.textContent = "Clic: disparar · Espacio: menú";
+    setHpBar(hud, activeHunter.hp / ROUND.hunterHp);
+    hud.hint.textContent = "Shift: correr · Ctrl: agachar · Esc: opciones";
     hud.mission.classList.add("hidden");
     hud.lockTitle.textContent = "Sos el cazador";
     hud.lockBody.textContent =
       "Pocos cartuchos. Pegarle a un boli te cuesta sangre. Observá quién se mueve distinto.";
   } else {
-    hud.mode.textContent = opts.boliMode ? "Modo boli ON" : "Shift: modo boli";
+    hud.mode.textContent = opts.boliMode ? "Modo boli ON" : "Q: modo boli";
     hud.mode.classList.toggle("on", opts.boliMode);
-    hud.hpWrap.classList.add("hidden");
-    hud.hint.textContent = "Shift: modo boli · Espacio: menú";
+    const hp = localEntity && !localEntity.downed ? localEntity.hp : 0;
+    setHpBar(hud, hp / ROUND.hitsToDown);
+    hud.hint.textContent = "Shift: correr · Ctrl: agachar · Q: boli · Esc: opciones";
     hud.mission.classList.remove("hidden");
     hud.mission.textContent = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
     hud.lockTitle.textContent = "Hacete el boli";
     hud.lockBody.textContent =
       "Mezclate con la manada y cumplí la misión, o sobreviví hasta que se acabe el tiempo. Quedarte solo te delata.";
   }
-  hud.crosshair.classList.toggle("hidden", !opts.pointerLocked);
-  hud.lock.classList.toggle("hidden", opts.pointerLocked || state.phase !== "PLAYING");
+  hud.crosshair.classList.toggle("hidden", !opts.pointerLocked || Boolean(opts.paused));
+  hud.lock.classList.toggle(
+    "hidden",
+    opts.pointerLocked || Boolean(opts.paused) || state.phase !== "PLAYING",
+  );
 
   if (state.phase === "PLAYING") {
     hud.end.classList.add("hidden");
@@ -641,6 +834,45 @@ function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hun
   }
   hud.end.classList.remove("hidden");
   hud.endTitle.textContent = endTitle(state);
+}
+
+function updateWaypoint(camera: THREE.PerspectiveCamera, hud: Hud, state: GameState, opts: ViewOpts): void {
+  const next = state.objectives.find((objective) => !objective.done);
+  const show = opts.role === "INFILTRATOR" && Boolean(next) && state.phase === "PLAYING" && !opts.paused;
+  hud.way.classList.toggle("hidden", !show);
+  if (!show || !next) {
+    return;
+  }
+  wayNdc.set(next.x, next.z + 10, next.y).project(camera);
+  const dist = Math.hypot(next.x - camera.position.x, next.y - camera.position.z);
+  const behind = wayNdc.z > 1;
+  let sx = (wayNdc.x * 0.5 + 0.5) * window.innerWidth;
+  let sy = (-wayNdc.y * 0.5 + 0.5) * window.innerHeight;
+  if (behind) {
+    sx = window.innerWidth - sx;
+    sy = window.innerHeight - sy;
+  }
+  const margin = 52;
+  const cx = window.innerWidth * 0.5;
+  const cy = window.innerHeight * 0.5;
+  const onScreen = !behind && wayNdc.x >= -0.92 && wayNdc.x <= 0.92 && wayNdc.y >= -0.82 && wayNdc.y <= 0.82;
+  if (onScreen) {
+    hud.way.style.left = `${sx}px`;
+    hud.way.style.top = `${sy}px`;
+    hud.wayNeedle.style.transform = "rotate(0deg)";
+    hud.wayMeta.textContent = `${Math.round(dist)} · ${next.label}`;
+    return;
+  }
+  const dx = sx - cx;
+  const dy = sy - cy;
+  const ang = Math.atan2(dy, dx);
+  const tx = Math.cos(ang);
+  const ty = Math.sin(ang);
+  const scale = Math.min((cx - margin) / Math.max(0.001, Math.abs(tx)), (cy - margin) / Math.max(0.001, Math.abs(ty)));
+  hud.way.style.left = `${cx + tx * scale}px`;
+  hud.way.style.top = `${cy + ty * scale}px`;
+  hud.wayNeedle.style.transform = `rotate(${(ang * 180) / Math.PI + 90}deg)`;
+  hud.wayMeta.textContent = `${Math.round(dist)}`;
 }
 
 function endTitle(state: GameState): string {

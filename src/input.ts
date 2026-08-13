@@ -2,9 +2,9 @@ export type FrameInput = {
   forward: number;
   strafe: number;
   boliMode: boolean;
-  restart: boolean;
-  reveal: boolean;
-  toggleView: boolean;
+  sprint: boolean;
+  crouch: boolean;
+  pause: boolean;
   click: { x: number; y: number } | null;
   mouseDx: number;
   mouseDy: number;
@@ -18,28 +18,24 @@ export function createInput(canvas: HTMLCanvasElement): {
 } {
   const keys = new Set<string>();
   let enabled = false;
-  let restartQueued = false;
-  let revealQueued = false;
-  let toggleViewQueued = false;
+  let pauseQueued = false;
   let clickQueued: { x: number; y: number } | null = null;
   let mouseDx = 0;
   let mouseDy = 0;
 
   window.addEventListener("keydown", (event) => {
     keys.add(event.code);
+    if (event.code === "Escape") {
+      event.preventDefault();
+      if (document.pointerLockElement !== canvas) {
+        pauseQueued = true;
+      }
+    }
     if (!enabled) {
       return;
     }
-    if (event.code === "Space") {
+    if (event.code === "Space" || event.code === "KeyQ" || event.code === "ControlLeft" || event.code === "ControlRight") {
       event.preventDefault();
-      restartQueued = true;
-    }
-    if (event.code === "KeyR") {
-      revealQueued = true;
-    }
-    if (event.code === "Tab") {
-      event.preventDefault();
-      toggleViewQueued = true;
     }
   });
 
@@ -67,9 +63,6 @@ export function createInput(canvas: HTMLCanvasElement): {
       enabled = value;
       if (!value) {
         keys.clear();
-        restartQueued = false;
-        revealQueued = false;
-        toggleViewQueued = false;
         clickQueued = null;
         mouseDx = 0;
         mouseDy = 0;
@@ -81,18 +74,16 @@ export function createInput(canvas: HTMLCanvasElement): {
       const input: FrameInput = {
         forward,
         strafe,
-        boliMode: keys.has("ShiftLeft") || keys.has("ShiftRight"),
-        restart: restartQueued,
-        reveal: revealQueued,
-        toggleView: toggleViewQueued,
+        boliMode: keys.has("KeyQ"),
+        sprint: keys.has("ShiftLeft") || keys.has("ShiftRight"),
+        crouch: keys.has("ControlLeft") || keys.has("ControlRight"),
+        pause: pauseQueued,
         click: clickQueued,
         mouseDx,
         mouseDy,
         pointerLocked: document.pointerLockElement === canvas,
       };
-      restartQueued = false;
-      revealQueued = false;
-      toggleViewQueued = false;
+      pauseQueued = false;
       clickQueued = null;
       mouseDx = 0;
       mouseDy = 0;

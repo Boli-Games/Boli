@@ -1,7 +1,14 @@
+import {
+  getProfile,
+  initAuth,
+  onProfileChange,
+  setProfile,
+} from "./auth";
 import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
 import { connectRoom, type RoomClient } from "./net/room";
 import { randomRoomCode, type NetInput, type ServerMsg } from "./net/protocol";
+import { applyRoundRewards, sensitivityToSlider, sliderToSensitivity } from "./profile";
 import {
   applySnapshot,
   createGame,
@@ -14,7 +21,6 @@ import {
 import { shortestAngleDiff } from "./sim/physics";
 import { mulberry32 } from "./sim/rng";
 import type { ControlRole, GameState } from "./sim/types";
-import { VIEW } from "./sim/types";
 import { createView } from "./view";
 
 const FIXED_DT = 1 / 60;
@@ -23,11 +29,19 @@ const SNAP_EVERY = 4;
 
 const canvasEl = document.querySelector<HTMLCanvasElement>("#game");
 const hudEl = document.querySelector<HTMLElement>("#hud");
-if (!canvasEl || !hudEl) {
+const pauseEl = document.querySelector<HTMLElement>("#pause");
+const hurtEl = document.querySelector<HTMLElement>("#hurt");
+const wayEl = document.querySelector<HTMLElement>("#way");
+const sensEl = document.querySelector<HTMLInputElement>("#sens");
+if (!canvasEl || !hudEl || !pauseEl || !hurtEl || !wayEl || !sensEl) {
   throw new Error("No se encontró el canvas o el HUD");
 }
 const canvas: HTMLCanvasElement = canvasEl;
 const hud: HTMLElement = hudEl;
+const pause: HTMLElement = pauseEl;
+const hurt: HTMLElement = hurtEl;
+const way: HTMLElement = wayEl;
+const sens: HTMLInputElement = sensEl;
 
 const input = createInput(canvas);
 const view = createView(canvas);
@@ -58,6 +72,9 @@ let hunterPitch = 0;
 let acc = 0;
 let last = performance.now();
 let assigned = false;
+let paused = false;
+let rewarded = false;
+let startedAsHunter = false;
 
 const menu = bindMenu({
   onCreate: () => joinRoom(randomRoomCode(), true),
@@ -66,9 +83,27 @@ const menu = bindMenu({
   onLeave: () => backToMenu(),
 });
 
+onProfileChange(() => menu.refreshProfile());
+
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement === canvas) {
+    return;
+  }
+  if (mode === "online" && state?.phase === "PLAYING" && !paused) {
+    setPaused(true);
+  }
+});
+
+must("#btnResume").addEventListener("click", () => setPaused(false));
+must("#btnQuit").addEventListener("click", () => backToMenu());
+sens.addEventListener("input", () => {
+  const profile = getProfile();
+  setProfile({ ...profile, lookSensitivity: sliderToSensitivity(Number(sens.value)) });
+});
+
 function joinRoom(code: string, created: boolean): void {
   teardownOnline();
-  const name = created ? "Anfitrión" : "Jugador";
+  const name = getProfile().displayName || (created ? "Anfitrión" : "Jugador");
   const room = connectRoom({
     code,
     name,
@@ -152,7 +187,9 @@ function handleNet(msg: ServerMsg): void {
     online.snapAcc = 0;
     mode = "online";
     assigned = true;
+    rewarded = false;
     syncRoleFromState(true);
+    startedAsHunter = role === "HUNTER";
     enterPlay();
     return;
   }
@@ -163,6 +200,7 @@ function handleNet(msg: ServerMsg): void {
   if (msg.t === "snapshot" && state && !online.isHost) {
     applySnapshot(state, msg.snap);
     syncRoleFromState(false);
+    maybeReward();
   }
 }
 
@@ -193,17 +231,21 @@ function syncRoleFromState(forceLook: boolean): void {
 function enterPlay(): void {
   menu.hide();
   hud.classList.remove("hidden");
+  setPaused(false);
   input.setEnabled(true);
 }
 
 function backToMenu(error = ""): void {
   document.exitPointerLock();
+  setPaused(false);
   input.setEnabled(false);
   teardownOnline();
   state = null;
   mode = "menu";
   assigned = false;
   hud.classList.add("hidden");
+  hurt.style.opacity = "0";
+  way.classList.add("hidden");
   history.replaceState(null, "", window.location.pathname);
   menu.showHome(error);
 }
@@ -211,6 +253,33 @@ function backToMenu(error = ""): void {
 function teardownOnline(): void {
   online?.room.close();
   online = null;
+}
+
+function setPaused(value: boolean): void {
+  paused = value;
+  pause.classList.toggle("hidden", !value);
+  if (value) {
+    document.exitPointerLock();
+    input.setEnabled(false);
+    sens.value = String(sensitivityToSlider(getProfile().lookSensitivity));
+    return;
+  }
+  if (mode === "online" && state?.phase === "PLAYING") {
+    input.setEnabled(true);
+  }
+}
+
+function maybeReward(): void {
+  if (!state || rewarded || state.phase === "PLAYING") {
+    return;
+  }
+  rewarded = true;
+  const next = applyRoundRewards(getProfile(), {
+    startedAsHunter,
+    hunterWin: state.phase === "HUNTER_WIN",
+    missionWin: state.objectives.every((objective) => objective.done),
+  });
+  setProfile(next.profile);
 }
 
 function activeYaw(): number {
@@ -244,33 +313,37 @@ function frame(now: number): void {
 
   const localId = online?.localId ?? "";
 
-  if (frameInput.restart) {
-    backToMenu();
-    requestAnimationFrame(frame);
-    return;
+  if (frameInput.pause) {
+    if (state.phase !== "PLAYING") {
+      backToMenu();
+      requestAnimationFrame(frame);
+      return;
+    }
+    setPaused(!paused);
   }
 
   const wasLocked = frameInput.pointerLocked;
-  if (frameInput.click && !wasLocked) {
+  if (frameInput.click && !wasLocked && !paused && state.phase === "PLAYING") {
     canvas.requestPointerLock();
   }
 
   const boliMode = frameInput.boliMode;
-  if (wasLocked) {
+  const look = getProfile().lookSensitivity;
+  if (wasLocked && !paused) {
     if (role === "HUNTER") {
-      hunterYaw += frameInput.mouseDx * VIEW.lookSensitivity;
-      hunterPitch -= frameInput.mouseDy * VIEW.lookSensitivity;
+      hunterYaw += frameInput.mouseDx * look;
+      hunterPitch -= frameInput.mouseDy * look;
       hunterPitch = Math.max(-1.15, Math.min(1.15, hunterPitch));
     } else if (!boliMode) {
-      infiltratorYaw += frameInput.mouseDx * VIEW.lookSensitivity;
-      infiltratorPitch -= frameInput.mouseDy * VIEW.lookSensitivity;
+      infiltratorYaw += frameInput.mouseDx * look;
+      infiltratorPitch -= frameInput.mouseDy * look;
       infiltratorPitch = Math.max(-1.15, Math.min(1.15, infiltratorPitch));
     }
   }
 
   let shoot = false;
   let targetId: string | null = null;
-  if (role === "HUNTER" && frameInput.click && wasLocked) {
+  if (role === "HUNTER" && frameInput.click && wasLocked && !paused) {
     const hunter = activeHunter();
     if (hunter) {
       const target = view.pickAimedEntity(state, hunter, hunterYaw, hunterPitch);
@@ -280,11 +353,13 @@ function frame(now: number): void {
   }
 
   const net: NetInput = {
-    forward: frameInput.forward,
-    strafe: frameInput.strafe,
+    forward: paused ? 0 : frameInput.forward,
+    strafe: paused ? 0 : frameInput.strafe,
     yaw: role === "HUNTER" ? hunterYaw : infiltratorYaw,
     pitch: hunterPitch,
-    boliMode: boliMode || role === "HUNTER",
+    boliMode: paused ? false : boliMode || role === "HUNTER",
+    sprint: !paused && frameInput.sprint,
+    crouch: !paused && frameInput.crouch && (role === "HUNTER" || !boliMode),
     shoot,
     targetId,
   };
@@ -305,6 +380,7 @@ function frame(now: number): void {
         online.room.send({ t: "snapshot", snap: snapshotOf(state) });
       }
     }
+    maybeReward();
   } else {
     acc = 0;
   }
@@ -317,7 +393,7 @@ function frame(now: number): void {
     infiltratorPitch += (0 - infiltratorPitch) * Math.min(1, raw * 5);
   }
 
-  if (state.phase !== "PLAYING") {
+  if (state.phase !== "PLAYING" || paused) {
     document.exitPointerLock();
   }
 
@@ -326,17 +402,20 @@ function frame(now: number): void {
     yaw: activeYaw(),
     pitch: activePitch(),
     boliMode,
+    crouch: net.crouch,
     pointerLocked: wasLocked,
     localId,
     hunterIndex,
     online: true,
+    hunterSkinId: getProfile().equippedSkin,
+    paused,
   });
   requestAnimationFrame(frame);
 }
 
 function packInputs(local: NetInput, localId: string) {
-  const infiltrators: Record<string, { forward: number; strafe: number; yaw: number; boliMode: boolean }> = {};
-  const hunters: Record<string, { forward: number; strafe: number; yaw: number; pitch: number }> = {};
+  const infiltrators: Record<string, NetInput> = {};
+  const hunters: Record<string, NetInput> = {};
   const add = (id: string, net: NetInput) => {
     if (hunterForController(state!, id)) {
       hunters[id] = net;
@@ -381,9 +460,20 @@ function resolveShots(localId: string, local: NetInput): void {
   }
 }
 
+function must(selector: string): HTMLElement {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (!el) {
+    throw new Error(`No se encontró ${selector}`);
+  }
+  return el;
+}
+
 requestAnimationFrame(frame);
 
-const pendingRoom = roomCodeFromUrl();
-if (pendingRoom) {
-  joinRoom(pendingRoom, false);
-}
+void initAuth().then(() => {
+  menu.refreshProfile();
+  const pendingRoom = roomCodeFromUrl();
+  if (pendingRoom) {
+    joinRoom(pendingRoom, false);
+  }
+});
