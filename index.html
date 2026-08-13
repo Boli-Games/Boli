@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Boli</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap"
+      rel="stylesheet"
+    />
     <style>
       * {
         margin: 0;
@@ -164,21 +170,9 @@
       }
       #pause.hidden,
       .hidden {
-        display: none;
+        display: none !important;
       }
       #hud.hidden {
-        display: none;
-      }
-      #menu {
-        position: fixed;
-        inset: 0;
-        z-index: 5;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: radial-gradient(ellipse at center, #1a2028 0%, #12151a 70%);
-      }
-      #menu.hidden {
         display: none;
       }
       .panel {
@@ -253,77 +247,6 @@
       .panel input:focus {
         outline: 1px solid #7dcea0;
       }
-      #displayName {
-        letter-spacing: 0.02em;
-        text-transform: none;
-        text-align: left;
-      }
-      #authStatus {
-        color: #9aa3ad;
-        font-size: 13px;
-        min-height: 1.2em;
-      }
-      #skinGrid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        justify-content: center;
-        margin: 8px 0 14px;
-      }
-      .skin {
-        width: 38px;
-        height: 38px;
-        border-radius: 8px;
-        border: 2px solid transparent;
-        cursor: pointer;
-        position: relative;
-      }
-      .skin.on {
-        border-color: #7dcea0;
-      }
-      .skin.locked {
-        opacity: 0.38;
-        cursor: default;
-      }
-      #codeShow {
-        font-size: 32px;
-        font-weight: 700;
-        letter-spacing: 0.28em;
-        margin: 12px 0 8px;
-      }
-      #memberList {
-        list-style: none;
-        text-align: left;
-        margin: 12px 0 16px;
-        color: #c5c0b2;
-        font-size: 15px;
-      }
-      #memberList li {
-        padding: 4px 0;
-      }
-      #menuError,
-      #unlockNote {
-        color: #e08a7a;
-        font-size: 14px;
-        min-height: 1.2em;
-        margin-top: 8px;
-      }
-      #unlockNote {
-        color: #9ee7b0;
-      }
-      .row {
-        display: flex;
-        gap: 8px;
-      }
-      .row input {
-        flex: 1;
-        margin: 8px 0;
-      }
-      .row button {
-        width: auto;
-        margin: 8px 0;
-        padding: 12px 18px;
-      }
       .sens {
         display: flex;
         align-items: center;
@@ -339,6 +262,536 @@
         padding: 0;
         margin: 0;
       }
+
+      /* —— Menú cartoon: pantallas exclusivas —— */
+      #menu {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        background: #2f7bff;
+        font-family: "Fredoka", "Segoe UI", sans-serif;
+        color: #111;
+        overflow: hidden;
+      }
+      #menu.hidden {
+        display: none !important;
+      }
+      #menu button,
+      #menu input {
+        font-family: inherit;
+      }
+      #menu button {
+        touch-action: manipulation;
+      }
+      .menu-doodles {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* Cada pantalla ocupa TODO el menú y se oculta por completo */
+      .menu-screen {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px 16px;
+        overflow: auto;
+      }
+      .menu-screen.hidden {
+        display: none !important;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      #homeChrome {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+      #homeChrome > * {
+        pointer-events: auto;
+      }
+      #homeChrome.hidden {
+        display: none !important;
+      }
+
+      #btnProfile {
+        position: absolute;
+        top: 16px;
+        right: 18px;
+        width: 62px;
+        height: 62px;
+        padding: 0;
+        border-radius: 50%;
+        background: #fff;
+        border: 5px solid #111;
+        box-shadow: 4px 5px 0 #111;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+      }
+      #btnProfile svg {
+        width: 34px;
+        height: 34px;
+      }
+      #btnProfile:hover {
+        transform: translate(-1px, -1px);
+        box-shadow: 5px 6px 0 #111;
+      }
+      #btnProfile:active {
+        transform: translate(2px, 3px);
+        box-shadow: 2px 2px 0 #111;
+      }
+      .profile-spark {
+        position: absolute;
+        top: 6px;
+        right: 22px;
+        pointer-events: none;
+      }
+      .menu-brand {
+        position: absolute;
+        right: 18px;
+        bottom: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        pointer-events: none;
+      }
+      .brand-mark {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .brand-name {
+        color: #111;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        line-height: 1.1;
+      }
+      .brand-name span {
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        font-size: 11px;
+      }
+      .menu-version {
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-shadow: 0 1px 0 #111;
+      }
+
+      .menu-logo {
+        position: relative;
+        width: min(430px, 92vw);
+        margin: 0 0 6px;
+        flex: 0 0 auto;
+      }
+      .menu-logo svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .menu-tagline {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin: 2px 0 22px;
+        color: #111;
+        font-size: clamp(13px, 2.4vw, 18px);
+        font-weight: 700;
+        letter-spacing: 0.14em;
+      }
+      .menu-tagline .deco {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .menu-tagline .deco i {
+        display: block;
+        background: #111;
+        border-radius: 2px;
+      }
+      .menu-tagline .deco i:nth-child(1),
+      .menu-tagline .deco i:nth-child(3) {
+        width: 14px;
+        height: 3px;
+      }
+      .menu-tagline .deco i:nth-child(2) {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+      }
+      .menu-nav {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        width: 100%;
+      }
+      .menu-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #fff;
+        color: #111;
+        border: 5px solid #111;
+        border-radius: 40px 46px 38px 44px;
+        box-shadow: 5px 7px 0 #111;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+        user-select: none;
+        line-height: 1;
+      }
+      .menu-btn:hover:not(:disabled) {
+        transform: translate(-1px, -1px);
+        box-shadow: 6px 8px 0 #111;
+      }
+      .menu-btn:active:not(:disabled) {
+        transform: translate(3px, 4px);
+        box-shadow: 2px 3px 0 #111;
+      }
+      .menu-btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .menu-btn .ico {
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .menu-btn-play {
+        width: min(360px, 86vw);
+        padding: 18px 28px;
+        font-size: clamp(20px, 4.2vw, 28px);
+        border-radius: 42px 48px 40px 46px;
+      }
+      .menu-btn-play::before {
+        content: "✦";
+        position: absolute;
+        left: -22px;
+        top: 6px;
+        color: #fff;
+        -webkit-text-stroke: 2px #111;
+        font-size: 13px;
+        pointer-events: none;
+      }
+      .menu-btn-play::after {
+        content: "✧";
+        position: absolute;
+        right: -20px;
+        bottom: 4px;
+        color: #fff;
+        -webkit-text-stroke: 2px #111;
+        pointer-events: none;
+      }
+      .menu-btn-custom {
+        width: min(318px, 76vw);
+        padding: 15px 24px;
+        font-size: clamp(16px, 3.4vw, 22px);
+      }
+      .menu-btn-custom::after {
+        content: "•";
+        position: absolute;
+        right: -14px;
+        top: 2px;
+        font-size: 18px;
+        pointer-events: none;
+      }
+      .menu-btn-settings {
+        width: min(248px, 62vw);
+        padding: 13px 22px;
+        font-size: clamp(15px, 3vw, 20px);
+        border-radius: 36px 40px 34px 38px;
+      }
+      .menu-btn-settings::before {
+        content: "▲";
+        position: absolute;
+        left: -16px;
+        bottom: 6px;
+        font-size: 9px;
+        color: #fff;
+        -webkit-text-stroke: 2px #111;
+        pointer-events: none;
+      }
+      .menu-btn-sm {
+        width: auto;
+        padding: 10px 18px;
+        font-size: 16px;
+        border-width: 4px;
+        box-shadow: 4px 5px 0 #111;
+      }
+      .menu-btn-block {
+        width: 100%;
+        padding: 14px 18px;
+        font-size: 18px;
+      }
+      .home-error {
+        min-height: 1.2em;
+        margin-top: 18px;
+        color: #fff;
+        font-weight: 700;
+        font-size: 15px;
+        text-align: center;
+        text-shadow: 0 1px 0 #111;
+      }
+      .home-error:not(:empty) {
+        background: #c43c3c;
+        border: 3px solid #111;
+        border-radius: 14px;
+        box-shadow: 3px 4px 0 #111;
+        padding: 8px 12px;
+      }
+
+      .menu-heading {
+        margin: 0 0 18px;
+        padding: 0 8px;
+        color: #fff;
+        font-family: "Fredoka", "Segoe UI", sans-serif;
+        font-size: clamp(26px, 6vw, 42px);
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        -webkit-text-stroke: 4px #111;
+        paint-order: stroke fill;
+        text-shadow: 3px 4px 0 #111;
+        text-align: center;
+        line-height: 1.1;
+      }
+      .menu-back {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        z-index: 3;
+      }
+      .menu-card {
+        width: min(480px, 100%);
+        background: #fff;
+        border: 5px solid #111;
+        border-radius: 28px 34px 26px 32px;
+        box-shadow: 6px 8px 0 #111;
+        padding: 22px 22px 20px;
+        text-align: center;
+      }
+      .menu-card .tag {
+        color: #333;
+        font-size: 15px;
+        line-height: 1.4;
+        margin-bottom: 14px;
+      }
+      .menu-card h2 {
+        font-size: 13px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 4px 0 10px;
+      }
+      .menu-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+      .menu-input {
+        width: 100%;
+        margin: 8px 0;
+        padding: 12px 14px;
+        background: #fff;
+        color: #111;
+        border: 4px solid #111;
+        border-radius: 16px 18px 14px 16px;
+        box-shadow: 3px 4px 0 #111;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .menu-input:focus {
+        outline: none;
+        box-shadow: 4px 5px 0 #111;
+      }
+      #joinCode {
+        text-align: center;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        font-size: 18px;
+      }
+      #displayName {
+        letter-spacing: 0.02em;
+        text-transform: none;
+        text-align: left;
+      }
+      #codeShow {
+        font-family: "Luckiest Guy", "Fredoka", sans-serif;
+        font-size: clamp(36px, 8vw, 52px);
+        letter-spacing: 0.18em;
+        color: #111;
+        margin: 4px 0 8px;
+        line-height: 1;
+      }
+      #codeInfo {
+        color: #333;
+        font-size: 14px;
+        line-height: 1.4;
+        margin-bottom: 12px;
+      }
+      #lobbyStatus {
+        display: inline-block;
+        margin: 0 0 12px;
+        padding: 6px 12px;
+        background: #2f7bff;
+        color: #fff;
+        border: 3px solid #111;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      #memberList {
+        list-style: none;
+        text-align: left;
+        margin: 0 0 14px;
+        color: #111;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #memberList li {
+        padding: 7px 10px;
+        border: 3px solid #111;
+        border-radius: 14px;
+        margin-bottom: 6px;
+        background: #f4f7ff;
+      }
+      #menuError,
+      #lobbyError,
+      #unlockNote {
+        min-height: 1.2em;
+        margin-top: 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      #menuError,
+      #lobbyError {
+        color: #a32626;
+      }
+      #unlockNote {
+        color: #1d5a2a;
+      }
+      #skinGrid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin: 8px 0 10px;
+      }
+      .skin {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        border: 4px solid #111;
+        box-shadow: 3px 4px 0 #111;
+        cursor: pointer;
+        position: relative;
+      }
+      .skin:hover:not(.locked) {
+        transform: translate(-1px, -1px);
+        box-shadow: 4px 5px 0 #111;
+      }
+      .skin.on {
+        outline: 3px solid #2f7bff;
+        outline-offset: 2px;
+      }
+      .skin.locked {
+        opacity: 0.38;
+        cursor: default;
+        box-shadow: none;
+      }
+
+      /* Popup de perfil: pequeño, anclado arriba a la derecha */
+      #profilePopup {
+        position: absolute;
+        top: 88px;
+        right: 18px;
+        z-index: 10;
+        width: min(280px, calc(100% - 36px));
+        background: #fff;
+        border: 5px solid #111;
+        border-radius: 22px 26px 20px 24px;
+        box-shadow: 5px 7px 0 #111;
+        padding: 14px 14px 12px;
+        text-align: left;
+      }
+      #profilePopup.hidden {
+        display: none !important;
+      }
+      #profilePopup h2 {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+      .profile-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .profile-actions .menu-btn {
+        flex: 1;
+      }
+
+      @media (max-height: 740px) {
+        .menu-logo {
+          width: min(340px, 78vw);
+        }
+        .menu-tagline {
+          margin-bottom: 14px;
+        }
+        .menu-nav {
+          gap: 12px;
+        }
+        .menu-btn-play {
+          padding: 14px 22px;
+        }
+      }
+      @media (max-width: 520px) {
+        #btnProfile {
+          width: 52px;
+          height: 52px;
+          top: 12px;
+          right: 12px;
+        }
+        #profilePopup {
+          top: 74px;
+          right: 12px;
+        }
+        .menu-back {
+          top: 14px;
+          left: 12px;
+          padding: 7px 12px;
+          font-size: 13px;
+        }
+        .menu-brand {
+          right: 12px;
+          bottom: 10px;
+        }
+        .menu-card {
+          padding: 16px 14px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -348,36 +801,190 @@
       <div id="wayNeedle">▲</div>
       <div id="wayMeta"></div>
     </div>
-    <div id="menu">
-      <div id="home" class="panel">
-        <h1>Boli</h1>
-        <p class="tag">Escondite entre la manada. Un cazador. El resto, bolis.</p>
-        <h2>Perfil</h2>
-        <input id="displayName" maxlength="18" placeholder="Tu nombre" autocomplete="nickname" />
-        <p id="authStatus"></p>
-        <div class="row">
-          <button type="button" id="btnSignIn">Entrar</button>
-          <button type="button" id="btnSignOut" class="hidden">Salir</button>
+    <div id="menu" data-screen="home">
+      <svg class="menu-doodles" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <g fill="none" stroke="#111" stroke-width="0.7" stroke-linecap="round">
+          <path d="M8 10 l1.2-3.2 1.2 3.2 3.2 1.2-3.2 1.2-1.2 3.2-1.2-3.2-3.2-1.2z" fill="#fff" />
+          <path d="M91 18 l.9-2.4 .9 2.4 2.4 .9-2.4 .9-.9 2.4-.9-2.4-2.4-.9z" fill="#fff" />
+          <path d="M14 78 l.8-2.1 .8 2.1 2.1 .8-2.1 .8-.8 2.1-.8-2.1-2.1-.8z" fill="#fff" />
+          <path d="M84 72 l1-2.6 1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1z" fill="#fff" />
+          <path d="M6 42 l2.2-1.1 M6 42 l2.2 1.1 M6 42 l2.4 0" />
+          <path d="M94 48 l-2.2-1.1 M94 48 l-2.2 1.1 M94 48 l-2.4 0" />
+          <circle cx="18" cy="22" r="0.7" fill="#111" stroke="none" />
+          <circle cx="22" cy="24" r="0.45" fill="#fff" stroke="#111" />
+          <circle cx="78" cy="28" r="0.7" fill="#111" stroke="none" />
+          <path d="M70 12 l1.8 0 M71 11 l0 2" />
+          <path d="M12 58 l1.6 0 M12.8 57.2 l0 1.6" />
+          <polygon points="88,38 89.2,40.6 86.8,40.6" fill="#fff" />
+          <polygon points="24,86 25.2,88.4 22.8,88.4" fill="#111" />
+        </g>
+      </svg>
+
+      <!-- Pantalla 1: menú principal (única visible al entrar) -->
+      <div id="home" class="menu-screen">
+        <div class="menu-logo" aria-hidden="true">
+          <svg viewBox="0 0 720 300" role="img">
+            <title>BOLI</title>
+            <defs>
+              <filter id="logoPop" x="-8%" y="-8%" width="120%" height="130%">
+                <feOffset dx="6" dy="8" in="SourceAlpha" result="off" />
+                <feFlood flood-color="#111" result="black" />
+                <feComposite in="black" in2="off" operator="in" result="shadow" />
+                <feMerge>
+                  <feMergeNode in="shadow" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <g transform="translate(300 10)">
+              <ellipse cx="0" cy="92" rx="54" ry="64" fill="#fff" stroke="#111" stroke-width="8" />
+              <ellipse cx="0" cy="16" rx="40" ry="23" fill="#fff" stroke="#111" stroke-width="8" />
+              <path d="M-50 24 Q0 38 50 24" fill="#fff" stroke="#111" stroke-width="8" stroke-linecap="round" />
+              <circle cx="0" cy="10" r="5" fill="#111" />
+              <circle cx="-16" cy="60" r="6.5" fill="#111" />
+              <circle cx="15" cy="60" r="6.5" fill="#111" />
+              <ellipse cx="0" cy="84" rx="19" ry="15" fill="#111" />
+              <ellipse cx="3" cy="90" rx="11" ry="8" fill="#e23b3b" />
+              <path d="M17 90 q9 12 7 20" fill="#5ec8ff" stroke="#111" stroke-width="3.2" stroke-linecap="round" />
+            </g>
+            <g
+              filter="url(#logoPop)"
+              font-family="Luckiest Guy, Fredoka, sans-serif"
+              font-size="168"
+              fill="#fff"
+              stroke="#111"
+              stroke-width="16"
+              stroke-linejoin="round"
+              paint-order="stroke fill"
+            >
+              <text x="40" y="250">B</text>
+              <text x="214" y="250">O</text>
+              <text x="398" y="250">L</text>
+              <text x="530" y="250">I</text>
+            </g>
+            <g transform="translate(300 10)">
+              <ellipse cx="-60" cy="122" rx="19" ry="14" fill="#fff" stroke="#111" stroke-width="7" transform="rotate(-18 -60 122)" />
+              <ellipse cx="58" cy="124" rx="19" ry="14" fill="#fff" stroke="#111" stroke-width="7" transform="rotate(16 58 124)" />
+            </g>
+          </svg>
         </div>
-        <h2>Abrigo de cazador</h2>
-        <div id="skinGrid"></div>
-        <p id="unlockNote"></p>
-        <button type="button" class="primary" id="btnCreate">Crear partida privada</button>
-        <div class="row">
-          <input id="joinCode" maxlength="4" placeholder="CÓDIGO" autocomplete="off" />
-          <button type="button" id="btnJoin">Unirse</button>
-        </div>
-        <p id="menuError"></p>
+        <p class="menu-tagline">
+          <span class="deco" aria-hidden="true"><i></i><i></i><i></i></span>
+          CREATIVO LINDO
+          <span class="deco" aria-hidden="true"><i></i><i></i><i></i></span>
+        </p>
+        <nav class="menu-nav" aria-label="Menú principal">
+          <button type="button" class="menu-btn menu-btn-play" id="btnNavCreate">
+            <span class="ico" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 22 22">
+                <path d="M5 3.5 L19 11 L5 18.5 Z" fill="#111" />
+              </svg>
+            </span>
+            CREAR PARTIDA
+          </button>
+          <button type="button" class="menu-btn menu-btn-custom" id="btnNavCustomize">
+            <span class="ico" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 32 32">
+                <ellipse cx="16" cy="20" rx="10" ry="9" fill="#fff" stroke="#111" stroke-width="2.6" />
+                <ellipse cx="16" cy="9" rx="8" ry="5" fill="#fff" stroke="#111" stroke-width="2.6" />
+                <path d="M7 12 Q16 16 25 12" fill="#fff" stroke="#111" stroke-width="2.6" />
+                <circle cx="12.5" cy="18" r="1.6" fill="#111" />
+                <circle cx="19" cy="18" r="1.6" fill="#111" />
+              </svg>
+            </span>
+            PERSONALIZACIÓN
+          </button>
+          <button type="button" class="menu-btn menu-btn-settings" id="btnNavSettings">
+            <span class="ico" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24">
+                <path
+                  fill="#111"
+                  d="M10 2h4l.6 2.4a7 7 0 0 1 2.2 1.3L19.4 5 22 8.6l-1.8 1.6a7 7 0 0 1 0 2.6L22 15.4 19.4 19l-2.6-.7a7 7 0 0 1-2.2 1.3L14 22h-4l-.6-2.4a7 7 0 0 1-2.2-1.3L4.6 19 2 15.4l1.8-1.6a7 7 0 0 1 0-2.6L2 8.6 4.6 5l2.6.7A7 7 0 0 1 9.4 4.4L10 2zm2 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
+                />
+              </svg>
+            </span>
+            AJUSTES
+          </button>
+        </nav>
+        <p id="homeError" class="home-error"></p>
       </div>
-      <div id="lobby" class="panel hidden">
-        <h1>Sala</h1>
-        <p class="tag">Compartí el código. Al empezar se sortea quién es el cazador.</p>
-        <div id="codeShow">----</div>
-        <ul id="memberList"></ul>
-        <button type="button" class="primary" id="btnStart">Empezar</button>
-        <button type="button" id="btnCopy">Copiar enlace</button>
-        <button type="button" id="btnLeave">Volver</button>
-        <p id="lobbyError"></p>
+
+      <!-- Pantalla 2: crear partida (reemplaza al menú principal) -->
+      <div id="screenCreate" class="menu-screen hidden" aria-hidden="true">
+        <button type="button" class="menu-btn menu-btn-sm menu-back" id="btnBackCreate">← Volver</button>
+        <h1 class="menu-heading">CREAR PARTIDA</h1>
+        <div class="menu-card">
+          <div id="createSetup">
+            <p class="tag">Creá una sala privada o uníte con un código de 4 letras.</p>
+            <button type="button" class="menu-btn menu-btn-block" id="btnCreate">Crear partida privada</button>
+            <div class="menu-row">
+              <input id="joinCode" maxlength="4" placeholder="CÓDIGO" autocomplete="off" class="menu-input" />
+              <button type="button" class="menu-btn menu-btn-sm" id="btnJoin">Unirse</button>
+            </div>
+            <p id="menuError"></p>
+          </div>
+          <div id="lobby" class="hidden">
+            <p class="tag">Compartí el código. Al empezar se sortea quién es el cazador.</p>
+            <div id="codeShow">----</div>
+            <p id="codeInfo">Este código identifica tu sala. Quien lo tenga puede unirse.</p>
+            <div id="lobbyStatus">Esperando jugadores</div>
+            <ul id="memberList"></ul>
+            <button type="button" class="menu-btn menu-btn-block" id="btnStart">Empezar</button>
+            <button type="button" class="menu-btn menu-btn-block" id="btnCopy">Copiar enlace</button>
+            <p id="lobbyError"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pantalla 3: personalización (reemplaza al menú principal) -->
+      <div id="screenCustomize" class="menu-screen hidden" aria-hidden="true">
+        <button type="button" class="menu-btn menu-btn-sm menu-back" id="btnBackCustomize">← Volver</button>
+        <h1 class="menu-heading">PERSONALIZACIÓN</h1>
+        <div class="menu-card">
+          <h2>Abrigo de cazador</h2>
+          <p class="tag">Elegí un color desbloqueado para tu cazador.</p>
+          <div id="skinGrid"></div>
+          <p id="unlockNote"></p>
+        </div>
+      </div>
+
+      <!-- Chrome del menú principal: perfil + marca (solo visibles en home) -->
+      <div id="homeChrome">
+        <span class="profile-spark" aria-hidden="true">
+          <svg width="28" height="22" viewBox="0 0 28 22" fill="none">
+            <path d="M8 18 L4 4" stroke="#111" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M14 16 L14 2" stroke="#111" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M20 18 L24 4" stroke="#111" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </span>
+        <button type="button" id="btnProfile" aria-label="Perfil" aria-haspopup="dialog" aria-expanded="false">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <circle cx="32" cy="24" r="12" fill="#111" />
+            <path d="M12 54c2-14 12-20 20-20s18 6 20 20" fill="#111" />
+          </svg>
+        </button>
+        <div class="menu-brand" aria-hidden="true">
+          <div class="brand-mark">
+            <svg width="42" height="42" viewBox="0 0 42 42">
+              <circle cx="21" cy="21" r="18" fill="#fff" stroke="#111" stroke-width="3.5" />
+              <circle cx="13" cy="18" r="4.2" fill="none" stroke="#111" stroke-width="2" />
+              <circle cx="21" cy="16" r="4.2" fill="none" stroke="#111" stroke-width="2" />
+              <circle cx="29" cy="18" r="4.2" fill="none" stroke="#111" stroke-width="2" />
+            </svg>
+            <div class="brand-name">Boli<br /><span>GAMES</span></div>
+          </div>
+          <div class="menu-version">— v0.0.1 —</div>
+        </div>
+      </div>
+
+      <!-- Popup de perfil (no es una pantalla) -->
+      <div id="profilePopup" class="hidden" role="dialog" aria-labelledby="profileTitle">
+        <h2 id="profileTitle">Perfil</h2>
+        <input id="displayName" maxlength="18" placeholder="Tu nombre" autocomplete="nickname" class="menu-input" />
+        <div class="profile-actions">
+          <button type="button" class="menu-btn menu-btn-sm" id="btnProfileSave">Guardar</button>
+          <button type="button" class="menu-btn menu-btn-sm" id="btnProfileClose">Cerrar</button>
+        </div>
       </div>
     </div>
     <div id="pause" class="hidden">
