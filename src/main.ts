@@ -21,6 +21,7 @@ import {
 } from "./sim/game";
 import { shortestAngleDiff } from "./sim/physics";
 import { mulberry32 } from "./sim/rng";
+import { isDebugHost } from "./debug/enabled";
 import { ROUND, VIEW, type ControlRole, type GameState } from "./sim/types";
 import { createView } from "./view";
 
@@ -111,6 +112,27 @@ document.addEventListener("pointerlockchange", () => {
     setPaused(true);
   }
 });
+
+if (isDebugHost()) {
+  void import("./debug/timeConsole")
+    .then(({ installTimeConsole }) => {
+      installTimeConsole({
+        getState: () => state,
+        onOpen() {
+          document.exitPointerLock();
+          input.setEnabled(false);
+        },
+        onClose() {
+          if (mode === "online" && state?.phase === "PLAYING" && !paused) {
+            input.setEnabled(true);
+          }
+        },
+      });
+    })
+    .catch((err) => {
+      console.error("[Boli] No se pudo cargar la consola de tiempo", err);
+    });
+}
 
 must("#btnResume").addEventListener("click", () => setPaused(false));
 must("#btnQuit").addEventListener("click", () => backToMenu());

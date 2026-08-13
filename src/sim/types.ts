@@ -158,6 +158,8 @@ export type GameState = {
   extraHunters: Hunter[];
   objectives: Objective[];
   timeLeft: number;
+  /** Minutes past midnight (0–1440). Drives sun/moon; stays in sync with timeLeft. */
+  worldMinute: number;
   phase: RoundPhase;
   revealTtl: number;
   shotKick: number;
