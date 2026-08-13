@@ -24,6 +24,7 @@ export function tickInfiltrator(
   player.stumbleTtl = Math.max(0, player.stumbleTtl - dt);
 
   if (input.boliMode) {
+    player.crouch = false;
     applyBoliMode(state, player, input, dt);
     assignPose(player, applyVertical(state.world, readPose(player), dt));
     applyStumble(player, state.clock);
@@ -33,6 +34,7 @@ export function tickInfiltrator(
   const moving = input.forward !== 0 || input.strafe !== 0;
   player.angle = input.yaw;
   player.lookAngle = input.yaw;
+  player.crouch = input.crouch && !input.boliMode;
 
   if (moving) {
     const speed = locomotionSpeed({ sprint: input.sprint, crouch: input.crouch });

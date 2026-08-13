@@ -60,6 +60,7 @@ export type GameView = {
   rebuild: (state: GameState) => void;
   render: (state: GameState, opts: ViewOpts) => void;
   pickAimedEntity: (state: GameState, hunter: Hunter, yaw: number, pitch: number) => Entity | null;
+  playShot: (opts: { firstPerson: boolean; hitX: number; hitY: number; hitZ: number; hit: boolean }) => void;
 };
 
 export function createView(canvas: HTMLCanvasElement): GameView {
@@ -74,6 +75,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   const fpsCamera = new THREE.PerspectiveCamera(70, 1, 0.2, 900);
   fpsCamera.rotation.order = "YXZ";
   scene.add(fpsCamera);
+  let eyeBlend = VIEW.eyeHeight;
 
   const worldRoot = new THREE.Group();
   const characterRoot = new THREE.Group();
@@ -88,6 +90,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   viewmodel.position.set(0.24, -0.3, -0.46);
   viewmodel.rotation.set(0.12, 0, 0.04);
   fpsCamera.add(viewmodel);
+  const shotFx = createShotFx(scene, fpsCamera, viewmodel);
 
   const raycaster = new THREE.Raycaster();
   const centerNdc = new THREE.Vector2(0, 0);
@@ -157,11 +160,12 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     walking: boolean,
     crouch = false,
   ): void {
-    const eye = crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight;
+    const eyeTarget = crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight;
+    eyeBlend += (eyeTarget - eyeBlend) * 0.28;
     const bob = walking && !crouch
       ? Math.abs(Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
       : 0;
-    fpsCamera.position.set(x, groundZ + eye + bob, z);
+    fpsCamera.position.set(x, groundZ + eyeBlend + bob, z);
     fpsCamera.rotation.y = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
     fpsCamera.rotation.x = pitch;
     fpsCamera.rotation.z = 0;
@@ -185,17 +189,17 @@ export function createView(canvas: HTMLCanvasElement): GameView {
       if (!mesh) {
         continue;
       }
-      syncPerson(mesh, entity, state.revealTtl > 0 && entity.controllerId === localId, state.clock);
+      syncPerson(mesh, entity, state.revealTtl > 0 && entity.controllerId === localId, state.clock, Boolean(entity.crouch));
       mesh.visible = !(opts.role === "INFILTRATOR" && entity.controllerId === localId);
     }
     if (hunterMesh) {
-      syncHunter(hunterMesh, state.hunter);
+      syncHunter(hunterMesh, state.hunter, Boolean(state.hunter.crouch));
       hunterMesh.visible = !(opts.role === "HUNTER" && hunterIndex === 0);
     }
     state.extraHunters.forEach((hunter, index) => {
       const mesh = extraMeshes[index];
       if (mesh) {
-        syncHunter(mesh, hunter);
+        syncHunter(mesh, hunter, Boolean(hunter.crouch));
         mesh.visible = !(opts.role === "HUNTER" && hunterIndex === index + 1);
       }
     });
@@ -218,7 +222,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         opts.pitch + state.shotKick * 0.18,
         activeHunter.walkTime,
         walking,
-        opts.crouch,
+        opts.crouch || activeHunter.crouch,
       );
       viewmodel.visible = true;
       viewmodel.rotation.x = 0.12 + state.shotKick * 0.12;
@@ -233,7 +237,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         opts.pitch,
         localEntity.walkTime,
         walking,
-        opts.crouch,
+        opts.crouch || localEntity.crouch,
       );
       viewmodel.visible = false;
     }
@@ -249,21 +253,22 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     updateBeacon(beacon, state, opts);
     updateWaypoint(fpsCamera, hud, state, opts);
     updateHud(hud, state, opts, activeHunter, localEntity);
+    shotFx.consume(state);
+    shotFx.tick();
     renderer.render(scene, fpsCamera);
   }
 
-  function pickAimedEntity(state: GameState, hunter: Hunter, yaw: number, pitch: number): Entity | null {
+  function pickAimedEntity(state: GameState, _hunter: Hunter, _yaw: number, _pitch: number): Entity | null {
     const targets: THREE.Object3D[] = [];
     for (const entity of state.entities) {
       const mesh = boliMeshes.get(entity.id);
       if (!mesh || entity.downed) {
         continue;
       }
-      syncPerson(mesh, entity, false, 0);
+      syncPerson(mesh, entity, false, 0, Boolean(entity.crouch));
       mesh.updateMatrixWorld(true);
       targets.push(mesh);
     }
-    placeCamera(hunter.x, hunter.y, hunter.z, yaw, pitch, 0, false);
     fpsCamera.updateMatrixWorld();
     raycaster.setFromCamera(centerNdc, fpsCamera);
     raycaster.far = ROUND.shotRange;
@@ -284,7 +289,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   }
 
   resize();
-  return { resize, rebuild, render, pickAimedEntity };
+  return { resize, rebuild, render, pickAimedEntity, playShot: shotFx.play };
 }
 
 function addLights(scene: THREE.Scene): void {
@@ -630,12 +635,14 @@ function makePerson(color: number, shade: number, hunter: boolean): THREE.Group 
 
   group.userData.head = head;
   group.userData.body = torso;
+  group.userData.hips = hips;
   group.userData.bodyMat = bodyMat;
   group.userData.shadeMat = shadeMat;
   group.userData.leftArm = leftArm;
   group.userData.rightArm = rightArm;
   group.userData.leftLeg = leftLeg;
   group.userData.rightLeg = rightLeg;
+  group.userData.crouchBlend = 0;
   return group;
 }
 
@@ -670,6 +677,274 @@ function updateBeacon(beacon: THREE.Group, state: GameState, opts: ViewOpts): vo
   beacon.scale.setScalar(pulse);
 }
 
+function createShotFx(
+  scene: THREE.Scene,
+  camera: THREE.PerspectiveCamera,
+  viewmodel: THREE.Group,
+): {
+  play: (opts: { firstPerson: boolean; hitX: number; hitY: number; hitZ: number; hit: boolean }) => void;
+  consume: (state: GameState) => void;
+  tick: () => void;
+} {
+  const sparkTex = makeSparkTexture();
+  const sparkMat = new THREE.SpriteMaterial({
+    map: sparkTex,
+    color: 0xffffff,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0xffe6a0,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const fpFlash = makeMuzzleStar();
+  fpFlash.position.set(0, 0.28, -9.1);
+  fpFlash.visible = false;
+  viewmodel.add(fpFlash);
+
+  const fpLight = new THREE.PointLight(0xffc56a, 0, 18, 2);
+  fpLight.position.set(0.08, -0.02, -0.7);
+  camera.add(fpLight);
+
+  const worldLight = new THREE.PointLight(0xffc56a, 0, 42, 2);
+  scene.add(worldLight);
+
+  const worldFlash = makeMuzzleStar();
+  worldFlash.scale.setScalar(0.12);
+  worldFlash.visible = false;
+  scene.add(worldFlash);
+
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.18, 1, 6, 1, true), beamMat);
+  beam.visible = false;
+  scene.add(beam);
+
+  const sparks: {
+    sprite: THREE.Sprite;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    max: number;
+  }[] = [];
+  const sparkPool: THREE.Sprite[] = [];
+  for (let i = 0; i < 48; i++) {
+    const sprite = new THREE.Sprite(sparkMat.clone());
+    sprite.visible = false;
+    scene.add(sprite);
+    sparkPool.push(sprite);
+  }
+
+  let lastShotId = 0;
+  let localUntil = 0;
+  let fpFlashLife = 0;
+  let worldFlashLife = 0;
+  let beamLife = 0;
+  let fxLast = performance.now();
+
+  function originFromCamera(): THREE.Vector3 {
+    const origin = new THREE.Vector3();
+    camera.getWorldPosition(origin);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    origin.addScaledVector(dir, 1.15);
+    origin.y -= 0.12;
+    return origin;
+  }
+
+  function play(opts: { firstPerson: boolean; hitX: number; hitY: number; hitZ: number; hit: boolean }): void {
+    localUntil = performance.now() + 280;
+    const hit = new THREE.Vector3(opts.hitX, opts.hitZ, opts.hitY);
+    burst(originFromCamera(), hit, opts.firstPerson, opts.hit);
+  }
+
+  function consume(state: GameState): void {
+    const event = state.shotEvent;
+    if (!event || event.id === lastShotId || event.hitX === undefined) {
+      return;
+    }
+    lastShotId = event.id;
+    if (performance.now() < localUntil) {
+      return;
+    }
+    const origin = new THREE.Vector3(event.x, event.z, event.y);
+    const hit = new THREE.Vector3(event.hitX, event.hitZ, event.hitY);
+    burst(origin, hit, false, event.hit);
+  }
+
+  function burst(origin: THREE.Vector3, hit: THREE.Vector3, firstPerson: boolean, didHit: boolean): void {
+    if (firstPerson) {
+      fpFlashLife = 0.09;
+      fpFlash.visible = true;
+      fpFlash.rotation.z = Math.random() * Math.PI;
+      fpLight.intensity = 7.5;
+    } else {
+      worldFlashLife = 0.12;
+      worldFlash.visible = true;
+      worldFlash.position.copy(origin);
+      worldFlash.lookAt(hit);
+      worldLight.position.copy(origin);
+      worldLight.intensity = 9;
+    }
+
+    const dir = hit.clone().sub(origin);
+    const len = Math.max(0.5, dir.length());
+    if (dir.lengthSq() < 0.0001) {
+      dir.set(0, 0, -1);
+    } else {
+      dir.normalize();
+    }
+    beam.visible = true;
+    beamLife = 0.11;
+    beam.position.copy(origin).add(hit).multiplyScalar(0.5);
+    beam.scale.set(1, len, 1);
+    beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    (beam.material as THREE.MeshBasicMaterial).opacity = 0.95;
+
+    const count = didHit ? 28 : 14;
+    for (let i = 0; i < count; i++) {
+      const sprite = sparkPool.find((item) => !item.visible);
+      if (!sprite) {
+        break;
+      }
+      const along = origin.clone().lerp(hit, didHit ? 0.92 + Math.random() * 0.08 : 0.55 + Math.random() * 0.4);
+      if (didHit && i < 22) {
+        along.copy(hit);
+      }
+      sprite.position.copy(along);
+      sprite.visible = true;
+      const speed = (didHit ? 22 : 10) * (0.35 + Math.random());
+      const yaw = Math.random() * Math.PI * 2;
+      const pitch = (Math.random() - 0.25) * Math.PI;
+      const mat = sprite.material as THREE.SpriteMaterial;
+      mat.color.setHex(Math.random() > 0.35 ? 0xffe08a : 0xff9a3a);
+      mat.opacity = 1;
+      const size = didHit ? 1.1 + Math.random() * 1.6 : 0.7 + Math.random();
+      sprite.scale.setScalar(size);
+      sparks.push({
+        sprite,
+        vx: Math.cos(yaw) * Math.cos(pitch) * speed,
+        vy: Math.sin(pitch) * speed + (didHit ? 8 : 2),
+        vz: Math.sin(yaw) * Math.cos(pitch) * speed,
+        life: 0.18 + Math.random() * 0.28,
+        max: 0.18 + Math.random() * 0.28,
+      });
+    }
+  }
+
+  function tick(): void {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - fxLast) / 1000);
+    fxLast = now;
+
+    if (fpFlashLife > 0) {
+      fpFlashLife -= dt;
+      const k = Math.max(0, fpFlashLife / 0.09);
+      fpFlash.visible = k > 0;
+      fpFlash.scale.setScalar(0.8 + (1 - k) * 1.4);
+      fpFlash.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshBasicMaterial | undefined;
+        if (mat?.opacity !== undefined) {
+          mat.opacity = k;
+        }
+      });
+      fpLight.intensity = 7.5 * k * k;
+    } else {
+      fpFlash.visible = false;
+      fpLight.intensity = 0;
+    }
+
+    if (worldFlashLife > 0) {
+      worldFlashLife -= dt;
+      const k = Math.max(0, worldFlashLife / 0.12);
+      worldFlash.visible = k > 0;
+      worldFlash.scale.setScalar(0.08 + (1 - k) * 0.2);
+      worldFlash.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshBasicMaterial | undefined;
+        if (mat?.opacity !== undefined) {
+          mat.opacity = k;
+        }
+      });
+      worldLight.intensity = 9 * k;
+    } else {
+      worldFlash.visible = false;
+      worldLight.intensity = 0;
+    }
+
+    if (beamLife > 0) {
+      beamLife -= dt;
+      const k = Math.max(0, beamLife / 0.11);
+      beam.visible = k > 0;
+      (beam.material as THREE.MeshBasicMaterial).opacity = 0.95 * k;
+      beam.scale.x = 0.6 + k * 0.8;
+      beam.scale.z = 0.6 + k * 0.8;
+    } else {
+      beam.visible = false;
+    }
+
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const spark = sparks[i];
+      spark.life -= dt;
+      if (spark.life <= 0) {
+        spark.sprite.visible = false;
+        sparks.splice(i, 1);
+        continue;
+      }
+      spark.vy -= 55 * dt;
+      spark.sprite.position.x += spark.vx * dt;
+      spark.sprite.position.y += spark.vy * dt;
+      spark.sprite.position.z += spark.vz * dt;
+      const k = spark.life / spark.max;
+      spark.sprite.scale.setScalar(0.4 + k * 1.8);
+      (spark.sprite.material as THREE.SpriteMaterial).opacity = k;
+    }
+  }
+
+  return { play, consume, tick };
+}
+
+function makeMuzzleStar(): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xfff1c2,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const wide = new THREE.Mesh(new THREE.PlaneGeometry(16, 3.2), mat);
+  const tall = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 16), mat.clone());
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(4.4, 12), mat.clone());
+  (glow.material as THREE.MeshBasicMaterial).color.setHex(0xff9a3a);
+  group.add(wide, tall, glow);
+  return group;
+}
+
+function makeSparkTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return new THREE.CanvasTexture(canvas);
+  }
+  const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,230,1)");
+  grad.addColorStop(0.28, "rgba(255,190,70,0.95)");
+  grad.addColorStop(1, "rgba(255,70,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function makeShotgun(scale: number): THREE.Group {
   const gun = new THREE.Group();
   gun.scale.setScalar(scale);
@@ -695,31 +970,40 @@ function makeShotgun(scale: number): THREE.Group {
   return gun;
 }
 
-function poseLimbs(mesh: THREE.Group, walking: boolean, walkTime: number, downed: boolean): void {
-  const swing = walking && !downed ? Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2) : 0;
+function poseLimbs(mesh: THREE.Group, walking: boolean, walkTime: number, downed: boolean, crouch: boolean): void {
+  const swing = walking && !downed && !crouch ? Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2) : 0;
+  const crouchSwing = walking && !downed && crouch ? Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2) : 0;
+  const hips = mesh.userData.hips as THREE.Group | undefined;
   const leftArm = mesh.userData.leftArm as THREE.Group | undefined;
   const rightArm = mesh.userData.rightArm as THREE.Group | undefined;
   const leftLeg = mesh.userData.leftLeg as THREE.Group | undefined;
   const rightLeg = mesh.userData.rightLeg as THREE.Group | undefined;
+  const blend = Number(mesh.userData.crouchBlend ?? 0);
+  const nextBlend = downed ? 0 : blend + ((crouch ? 1 : 0) - blend) * 0.28;
+  mesh.userData.crouchBlend = nextBlend;
+  if (hips) {
+    hips.position.y = 6.55 - nextBlend * 3.55;
+    hips.rotation.x = nextBlend * 0.42;
+  }
   if (leftArm) {
-    leftArm.rotation.x = swing * 0.7;
+    leftArm.rotation.x = swing * 0.7 + nextBlend * 0.35 + crouchSwing * 0.22;
   }
   if (rightArm) {
-    rightArm.rotation.x = -swing * 0.7;
+    rightArm.rotation.x = -swing * 0.7 + nextBlend * 0.55 + crouchSwing * 0.18;
   }
   if (leftLeg) {
-    leftLeg.rotation.x = -swing * 0.55;
+    leftLeg.rotation.x = -swing * 0.55 + nextBlend * 1.05 + crouchSwing * 0.2;
   }
   if (rightLeg) {
-    rightLeg.rotation.x = swing * 0.55;
+    rightLeg.rotation.x = swing * 0.55 + nextBlend * 1.05 - crouchSwing * 0.2;
   }
 }
 
-function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock: number): void {
+function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock: number, crouch: boolean): void {
   const walking =
     !entity.downed &&
     (entity.state === "WANDER" || entity.state === "REACT" || (entity.state === "REGROUP" && !isHolding(entity)));
-  const bounce = walking
+  const bounce = walking && !crouch
     ? Math.abs(Math.sin((entity.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   const stumble = entity.stumbleTtl > 0 ? Math.sin(clock * 18) * 0.18 : 0;
@@ -727,20 +1011,20 @@ function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock:
   mesh.rotation.x = entity.downed ? Math.PI / 2 : 0;
   mesh.rotation.y = Math.atan2(Math.cos(entity.angle), Math.sin(entity.angle));
   mesh.rotation.z = stumble;
-  poseLimbs(mesh, walking, entity.walkTime, entity.downed);
+  poseLimbs(mesh, walking, entity.walkTime, entity.downed, crouch && !entity.downed);
   const body = mesh.userData.body as THREE.Mesh;
   const mat = body.material as THREE.MeshLambertMaterial;
   mat.emissive.setHex(revealed ? 0x661111 : 0x000000);
 }
 
-function syncHunter(mesh: THREE.Group, hunter: Hunter): void {
+function syncHunter(mesh: THREE.Group, hunter: Hunter, crouch: boolean): void {
   const walking = hunter.state === "WANDER";
-  const bounce = walking
+  const bounce = walking && !crouch
     ? Math.abs(Math.sin((hunter.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   mesh.position.set(hunter.x, hunter.z + bounce, hunter.y);
   mesh.rotation.y = Math.atan2(Math.cos(hunter.angle), Math.sin(hunter.angle));
-  poseLimbs(mesh, walking, hunter.walkTime, false);
+  poseLimbs(mesh, walking, hunter.walkTime, false, crouch);
 }
 
 function isHolding(entity: Entity): boolean {
@@ -805,7 +1089,7 @@ function updateHud(
     hud.mode.textContent = `${state.accusationsLeft} cartuchos`;
     hud.mode.classList.toggle("on", state.accusationsLeft > 0);
     setHpBar(hud, activeHunter.hp / ROUND.hunterHp);
-    hud.hint.textContent = "Shift: correr · Ctrl: agachar · Esc: opciones";
+    hud.hint.textContent = "Shift: correr · C / Ctrl: agachar · Esc: opciones";
     hud.mission.classList.add("hidden");
     hud.lockTitle.textContent = "Sos el cazador";
     hud.lockBody.textContent =
@@ -815,7 +1099,7 @@ function updateHud(
     hud.mode.classList.toggle("on", opts.boliMode);
     const hp = localEntity && !localEntity.downed ? localEntity.hp : 0;
     setHpBar(hud, hp / ROUND.hitsToDown);
-    hud.hint.textContent = "Shift: correr · Ctrl: agachar · Q: boli · Esc: opciones";
+    hud.hint.textContent = "Shift: correr · C / Ctrl: agachar · Q: boli · Esc: opciones";
     hud.mission.classList.remove("hidden");
     hud.mission.textContent = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
     hud.lockTitle.textContent = "Hacete el boli";

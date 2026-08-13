@@ -35,6 +35,7 @@ export function createHunter(
     lookAngle: 0,
     hp: ROUND.hunterHp,
     controllerId: null,
+    crouch: false,
   };
 }
 
@@ -49,6 +50,7 @@ export function tickHunterAi(hunter: Hunter, state: GameState, dt: number, rng: 
       hunter.angle = hunter.lookAngle;
     }
     hunter.pitch = 0;
+    hunter.crouch = false;
     if (hunter.stateTimer <= 0) {
       const next = randomWalkablePoint(state.world, rng, hunter.layer);
       hunter.targetX = next.x;
@@ -71,6 +73,7 @@ export function tickHunterAi(hunter: Hunter, state: GameState, dt: number, rng: 
   hunter.angle = angleTo(hunter.x, hunter.y, hunter.targetX, hunter.targetY);
   hunter.lookAngle = hunter.angle;
   hunter.pitch = 0;
+  hunter.crouch = false;
 
   if (moved.arrived) {
     hunter.state = "PAUSE";
@@ -87,6 +90,7 @@ export function tickHunterControlled(
   hunter.angle = input.yaw;
   hunter.lookAngle = input.yaw;
   hunter.pitch = input.pitch;
+  hunter.crouch = input.crouch;
 
   const moving = input.forward !== 0 || input.strafe !== 0;
   if (!moving) {

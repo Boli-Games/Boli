@@ -7,7 +7,7 @@ import {
 import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
 import { connectRoom, type RoomClient } from "./net/room";
-import { randomRoomCode, type NetInput, type ServerMsg } from "./net/protocol";
+import { randomRoomCode, type NetInput, type ServerMsg, emptyInput } from "./net/protocol";
 import { applyRoundRewards, sensitivityToSlider, sliderToSensitivity } from "./profile";
 import {
   applySnapshot,
@@ -17,15 +17,17 @@ import {
   playerEntity,
   snapshotOf,
   tickGame,
+  tickLocalPrediction,
 } from "./sim/game";
 import { shortestAngleDiff } from "./sim/physics";
 import { mulberry32 } from "./sim/rng";
-import type { ControlRole, GameState } from "./sim/types";
+import { ROUND, VIEW, type ControlRole, type GameState } from "./sim/types";
 import { createView } from "./view";
 
 const FIXED_DT = 1 / 60;
 const MAX_FRAME = 0.05;
-const SNAP_EVERY = 4;
+const MAX_HIDDEN_FRAME = 0.2;
+const SNAP_EVERY = 2;
 
 const canvasEl = document.querySelector<HTMLCanvasElement>("#game");
 const hudEl = document.querySelector<HTMLElement>("#hud");
@@ -57,6 +59,8 @@ type OnlineSession = {
   hunterId: string;
   hiderIds: string[];
   remotes: Map<string, NetInput>;
+  shotsSeen: Map<string, number>;
+  pendingShots: { id: string; targetId: string | null }[];
   snapAcc: number;
 };
 
@@ -71,10 +75,16 @@ let hunterYaw = 0;
 let hunterPitch = 0;
 let acc = 0;
 let last = performance.now();
+let lastSim = performance.now();
 let assigned = false;
 let paused = false;
 let rewarded = false;
 let startedAsHunter = false;
+let localShotSeq = 0;
+let shotEcho = 0;
+let shotTargetId: string | null = null;
+let pauseFromEscape = false;
+let latestNet: NetInput = emptyInput();
 
 const menu = bindMenu({
   onCreate: () => joinRoom(randomRoomCode(), true),
@@ -85,11 +95,19 @@ const menu = bindMenu({
 
 onProfileChange(() => menu.refreshProfile());
 
+document.addEventListener("keydown", (event) => {
+  if (event.code === "Escape") {
+    pauseFromEscape = true;
+  }
+});
+
 document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement === canvas) {
+    pauseFromEscape = false;
     return;
   }
-  if (mode === "online" && state?.phase === "PLAYING" && !paused) {
+  if (pauseFromEscape && mode === "online" && state?.phase === "PLAYING" && !paused) {
+    pauseFromEscape = false;
     setPaused(true);
   }
 });
@@ -127,6 +145,8 @@ function joinRoom(code: string, created: boolean): void {
     hunterId: "",
     hiderIds: [],
     remotes: new Map(),
+    shotsSeen: new Map(),
+    pendingShots: [],
     snapAcc: 0,
   };
   mode = "menu";
@@ -184,21 +204,40 @@ function handleNet(msg: ServerMsg): void {
     online.hunterId = msg.hunterId;
     online.hiderIds = msg.hiderIds;
     online.remotes.clear();
+    online.shotsSeen.clear();
+    online.pendingShots.length = 0;
     online.snapAcc = 0;
     mode = "online";
     assigned = true;
     rewarded = false;
     syncRoleFromState(true);
     startedAsHunter = role === "HUNTER";
+    localShotSeq = 0;
+    shotEcho = 0;
+    shotTargetId = null;
+    latestNet = emptyInput();
+    last = performance.now();
+    lastSim = last;
+    acc = 0;
     enterPlay();
     return;
   }
   if (msg.t === "input" && online.isHost) {
-    online.remotes.set(msg.from, msg.input);
+    if (msg.input.shoot || msg.input.shotSeq > 0) {
+      const seen = online.shotsSeen.get(msg.from) ?? 0;
+      if (msg.input.shotSeq > seen) {
+        online.shotsSeen.set(msg.from, msg.input.shotSeq);
+        online.pendingShots.push({ id: msg.from, targetId: msg.input.targetId });
+      }
+    }
+    online.remotes.set(msg.from, { ...msg.input, shoot: false });
+    if (document.hidden) {
+      stepHost(performance.now());
+    }
     return;
   }
   if (msg.t === "snapshot" && state && !online.isHost) {
-    applySnapshot(state, msg.snap);
+    applySnapshot(state, msg.snap, online.localId);
     syncRoleFromState(false);
     maybeReward();
   }
@@ -303,7 +342,6 @@ function activeHunter() {
 function frame(now: number): void {
   const raw = Math.min((now - last) / 1000, MAX_FRAME);
   last = now;
-  acc += raw;
   const frameInput = input.read();
 
   if (mode === "menu" || !state || !assigned) {
@@ -324,7 +362,7 @@ function frame(now: number): void {
 
   const wasLocked = frameInput.pointerLocked;
   if (frameInput.click && !wasLocked && !paused && state.phase === "PLAYING") {
-    canvas.requestPointerLock();
+    void canvas.requestPointerLock();
   }
 
   const boliMode = frameInput.boliMode;
@@ -341,18 +379,42 @@ function frame(now: number): void {
     }
   }
 
-  let shoot = false;
-  let targetId: string | null = null;
-  if (role === "HUNTER" && frameInput.click && wasLocked && !paused) {
+  const shootPressed =
+    role === "HUNTER" && frameInput.shootPresses > 0 && wasLocked && !paused && state.phase === "PLAYING";
+  if (shootPressed) {
     const hunter = activeHunter();
-    if (hunter) {
+    if (hunter && hunter.hp > 0 && state.accusationsLeft > 0) {
       const target = view.pickAimedEntity(state, hunter, hunterYaw, hunterPitch);
-      targetId = target?.id ?? null;
-      shoot = true;
+      shotTargetId = target?.id ?? null;
+      localShotSeq += 1;
+      shotEcho = 8;
+      const range = ROUND.shotRange;
+      const look = Math.cos(hunterPitch);
+      const crouch = frameInput.crouch || hunter.crouch;
+      const eye = hunter.z + (crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight);
+      view.playShot({
+        firstPerson: true,
+        hit: Boolean(target),
+        hitX: target ? target.x : hunter.x + Math.cos(hunterYaw) * look * range,
+        hitY: target ? target.y : hunter.y + Math.sin(hunterYaw) * look * range,
+        hitZ: target ? target.z + 8 : eye + Math.sin(hunterPitch) * range,
+      });
+      if (online?.isHost) {
+        const seen = online.shotsSeen.get(localId) ?? 0;
+        if (localShotSeq > seen) {
+          online.shotsSeen.set(localId, localShotSeq);
+          online.pendingShots.push({ id: localId, targetId: shotTargetId });
+        }
+      } else {
+        state.shotKick = 1;
+      }
     }
   }
+  if (shotEcho > 0) {
+    shotEcho -= 1;
+  }
 
-  const net: NetInput = {
+  latestNet = {
     forward: paused ? 0 : frameInput.forward,
     strafe: paused ? 0 : frameInput.strafe,
     yaw: role === "HUNTER" ? hunterYaw : infiltratorYaw,
@@ -360,29 +422,23 @@ function frame(now: number): void {
     boliMode: paused ? false : boliMode || role === "HUNTER",
     sprint: !paused && frameInput.sprint,
     crouch: !paused && frameInput.crouch && (role === "HUNTER" || !boliMode),
-    shoot,
-    targetId,
+    shoot: shotEcho > 0,
+    shotSeq: localShotSeq,
+    targetId: shotTargetId,
   };
 
   if (online && !online.isHost) {
-    online.room.send({ t: "input", input: net });
+    online.room.send({ t: "input", input: latestNet });
   }
 
   if (online?.isHost) {
-    while (acc >= FIXED_DT) {
-      const pack = packInputs(net, localId);
-      tickGame(state, pack, FIXED_DT);
-      resolveShots(localId, net);
-      acc -= FIXED_DT;
-      online.snapAcc += 1;
-      if (online.snapAcc >= SNAP_EVERY) {
-        online.snapAcc = 0;
-        online.room.send({ t: "snapshot", snap: snapshotOf(state) });
-      }
-    }
-    maybeReward();
+    stepHost(now);
   } else {
-    acc = 0;
+    acc += raw;
+    while (acc >= FIXED_DT) {
+      tickLocalPrediction(state, localId, latestNet, FIXED_DT);
+      acc -= FIXED_DT;
+    }
   }
 
   syncRoleFromState(false);
@@ -393,7 +449,7 @@ function frame(now: number): void {
     infiltratorPitch += (0 - infiltratorPitch) * Math.min(1, raw * 5);
   }
 
-  if (state.phase !== "PLAYING" || paused) {
+  if (state.phase !== "PLAYING" && document.pointerLockElement === canvas) {
     document.exitPointerLock();
   }
 
@@ -402,7 +458,7 @@ function frame(now: number): void {
     yaw: activeYaw(),
     pitch: activePitch(),
     boliMode,
-    crouch: net.crouch,
+    crouch: latestNet.crouch,
     pointerLocked: wasLocked,
     localId,
     hunterIndex,
@@ -411,6 +467,33 @@ function frame(now: number): void {
     paused,
   });
   requestAnimationFrame(frame);
+}
+
+function stepHost(now: number): void {
+  if (!online?.isHost || !state || !assigned) {
+    return;
+  }
+  const cap = document.hidden ? MAX_HIDDEN_FRAME : MAX_FRAME;
+  const raw = Math.min(Math.max(0, (now - lastSim) / 1000), cap);
+  lastSim = now;
+  acc += raw;
+  const localId = online.localId;
+  const local = document.hidden
+    ? { ...latestNet, forward: 0, strafe: 0, sprint: false, shoot: false }
+    : latestNet;
+  let steps = 0;
+  while (acc >= FIXED_DT && steps < 12) {
+    tickGame(state, packInputs(local, localId), FIXED_DT);
+    const fired = resolveShots();
+    acc -= FIXED_DT;
+    steps += 1;
+    online.snapAcc += 1;
+    if (fired || online.snapAcc >= SNAP_EVERY) {
+      online.snapAcc = 0;
+      online.room.send({ t: "snapshot", snap: snapshotOf(state) });
+    }
+  }
+  maybeReward();
 }
 
 function packInputs(local: NetInput, localId: string) {
@@ -432,22 +515,13 @@ function packInputs(local: NetInput, localId: string) {
   return { infiltrators, hunters };
 }
 
-function resolveShots(localId: string, local: NetInput): void {
-  if (!state) {
-    return;
+function resolveShots(): boolean {
+  if (!state || !online) {
+    return false;
   }
-  const shots: { id: string; targetId: string | null }[] = [];
-  if (local.shoot) {
-    shots.push({ id: localId, targetId: local.targetId });
-    local.shoot = false;
-  }
-  if (online?.isHost) {
-    for (const [id, net] of online.remotes) {
-      if (net.shoot) {
-        shots.push({ id, targetId: net.targetId });
-        net.shoot = false;
-      }
-    }
+  const shots = online.pendingShots.splice(0);
+  if (shots.length === 0) {
+    return false;
   }
   for (const shot of shots) {
     const found = hunterForController(state, shot.id);
@@ -458,6 +532,7 @@ function resolveShots(localId: string, local: NetInput): void {
     const target = shot.targetId ? (state.entities.find((entity) => entity.id === shot.targetId) ?? null) : null;
     fireAtEntity(state, target, hunter);
   }
+  return true;
 }
 
 function must(selector: string): HTMLElement {
@@ -469,6 +544,11 @@ function must(selector: string): HTMLElement {
 }
 
 requestAnimationFrame(frame);
+setInterval(() => {
+  if (document.hidden && online?.isHost && state && assigned) {
+    stepHost(performance.now());
+  }
+}, 33);
 
 void initAuth().then(() => {
   menu.refreshProfile();

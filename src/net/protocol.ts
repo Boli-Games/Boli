@@ -7,6 +7,7 @@ export const MAX_PLAYERS = 8;
 export type NetInput = InfiltratorInput &
   HunterInput & {
     shoot: boolean;
+    shotSeq: number;
     targetId: string | null;
   };
 
@@ -50,6 +51,7 @@ export function emptyInput(): NetInput {
     sprint: false,
     crouch: false,
     shoot: false,
+    shotSeq: 0,
     targetId: null,
   };
 }

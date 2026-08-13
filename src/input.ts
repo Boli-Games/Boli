@@ -6,6 +6,7 @@ export type FrameInput = {
   crouch: boolean;
   pause: boolean;
   click: { x: number; y: number } | null;
+  shootPresses: number;
   mouseDx: number;
   mouseDy: number;
   pointerLocked: boolean;
@@ -20,6 +21,7 @@ export function createInput(canvas: HTMLCanvasElement): {
   let enabled = false;
   let pauseQueued = false;
   let clickQueued: { x: number; y: number } | null = null;
+  let shootPresses = 0;
   let mouseDx = 0;
   let mouseDy = 0;
 
@@ -34,7 +36,13 @@ export function createInput(canvas: HTMLCanvasElement): {
     if (!enabled) {
       return;
     }
-    if (event.code === "Space" || event.code === "KeyQ" || event.code === "ControlLeft" || event.code === "ControlRight") {
+    if (
+      event.code === "Space" ||
+      event.code === "KeyQ" ||
+      event.code === "KeyC" ||
+      event.code === "ControlLeft" ||
+      event.code === "ControlRight"
+    ) {
       event.preventDefault();
     }
   });
@@ -43,8 +51,19 @@ export function createInput(canvas: HTMLCanvasElement): {
     keys.delete(event.code);
   });
 
-  canvas.addEventListener("mousedown", (event) => {
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
     clickQueued = { x: event.clientX, y: event.clientY };
+    if (enabled && document.pointerLockElement === canvas) {
+      shootPresses += 1;
+    }
   });
 
   window.addEventListener("mousemove", (event) => {
@@ -64,6 +83,7 @@ export function createInput(canvas: HTMLCanvasElement): {
       if (!value) {
         keys.clear();
         clickQueued = null;
+        shootPresses = 0;
         mouseDx = 0;
         mouseDy = 0;
       }
@@ -76,15 +96,17 @@ export function createInput(canvas: HTMLCanvasElement): {
         strafe,
         boliMode: keys.has("KeyQ"),
         sprint: keys.has("ShiftLeft") || keys.has("ShiftRight"),
-        crouch: keys.has("ControlLeft") || keys.has("ControlRight"),
+        crouch: keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC"),
         pause: pauseQueued,
         click: clickQueued,
+        shootPresses,
         mouseDx,
         mouseDy,
         pointerLocked: document.pointerLockElement === canvas,
       };
       pauseQueued = false;
       clickQueued = null;
+      shootPresses = 0;
       mouseDx = 0;
       mouseDy = 0;
       return input;

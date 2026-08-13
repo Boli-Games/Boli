@@ -1,7 +1,7 @@
 import { enterWander, startleCrowd, tickBolis } from "./boliAi";
 import { createHunter, tickHunterAi, tickHunterControlled, type HunterInput } from "./hunter";
 import { tickInfiltrator, type InfiltratorInput } from "./infiltrator";
-import { RHYTHM, ROUND, type Entity, type GameState, type Hunter } from "./types";
+import { RHYTHM, ROUND, VIEW, type Entity, type GameState, type Hunter } from "./types";
 import { createAmmoCrates, createObjectives, createWorld, randomWalkablePoint, sampleHeight } from "./world";
 
 export type CreateGameOpts = {
@@ -55,6 +55,7 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
       stumbleTtl: 0,
       controllerId,
       isolationTimer: 0,
+      crouch: false,
     };
     entity.lookAngle = entity.angle;
     if (!entity.isPlayer) {
@@ -274,7 +275,25 @@ export function fireAtEntity(state: GameState, target: Entity | null, hunter: Hu
 
   state.accusationsLeft -= 1;
   state.shotKick = 1;
-  state.shotEvent = { x: hunter.x, y: hunter.y, ttl: 0.7 };
+  const range = ROUND.shotRange;
+  const look = Math.cos(hunter.pitch);
+  const eye = hunter.z + (hunter.crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight);
+  const hitX = target && !target.downed ? target.x : hunter.x + Math.cos(hunter.angle) * look * range;
+  const hitY = target && !target.downed ? target.y : hunter.y + Math.sin(hunter.angle) * look * range;
+  const hitZ = target && !target.downed ? target.z + 8 : eye + Math.sin(hunter.pitch) * range;
+  state.shotEvent = {
+    id: (state.shotEvent?.id ?? 0) + 1,
+    x: hunter.x,
+    y: hunter.y,
+    z: eye,
+    yaw: hunter.angle,
+    pitch: hunter.pitch,
+    hitX,
+    hitY,
+    hitZ,
+    hit: Boolean(target && !target.downed),
+    ttl: 0.55,
+  };
   startleCrowd(state, hunter.x, hunter.y);
 
   if (!target || target.downed) {
@@ -368,6 +387,84 @@ export function snapshotOf(state: GameState): Omit<GameState, "world"> {
   return JSON.parse(JSON.stringify({ ...state, world: undefined })) as Omit<GameState, "world">;
 }
 
-export function applySnapshot(state: GameState, snapshot: Omit<GameState, "world">): void {
+export function applySnapshot(
+  state: GameState,
+  snapshot: Omit<GameState, "world">,
+  localId?: string,
+): void {
+  const keptHunter = localId ? hunterForController(state, localId)?.hunter : null;
+  const keptHunterCopy = keptHunter ? { ...keptHunter } : null;
+  const keptEntity = localId ? playerEntity(state, localId) : null;
+  const keptEntityCopy = keptEntity ? { ...keptEntity } : null;
+  const world = state.world;
   Object.assign(state, snapshot);
+  state.world = world;
+  if (keptHunterCopy && localId) {
+    const next = hunterForController(state, localId);
+    if (next) {
+      keepPredictedPose(next.hunter, keptHunterCopy);
+    }
+  }
+  if (keptEntityCopy) {
+    const next = state.entities.find((entity) => entity.id === keptEntityCopy.id);
+    if (next) {
+      keepPredictedPose(next, keptEntityCopy);
+    }
+  }
+}
+
+export function tickLocalPrediction(
+  state: GameState,
+  localId: string,
+  input: InfiltratorInput & HunterInput,
+  dt: number,
+): void {
+  if (state.phase !== "PLAYING") {
+    return;
+  }
+  const found = hunterForController(state, localId);
+  if (found) {
+    tickHunterControlled(found.hunter, state, input, dt);
+    return;
+  }
+  const player = playerEntity(state, localId);
+  if (player) {
+    tickInfiltrator(state, player, input, dt);
+  }
+}
+
+function keepPredictedPose(
+  server: {
+    x: number;
+    y: number;
+    z: number;
+    vz: number;
+    layer: Hunter["layer"];
+    walkTime: number;
+    state: Hunter["state"];
+    crouch: boolean;
+  },
+  predicted: {
+    x: number;
+    y: number;
+    z: number;
+    vz: number;
+    layer: Hunter["layer"];
+    walkTime: number;
+    state: Hunter["state"];
+    crouch: boolean;
+  },
+): void {
+  const err = Math.hypot(server.x - predicted.x, server.y - predicted.y);
+  if (err > 28) {
+    return;
+  }
+  server.x = predicted.x;
+  server.y = predicted.y;
+  server.z = predicted.z;
+  server.vz = predicted.vz;
+  server.layer = predicted.layer;
+  server.walkTime = predicted.walkTime;
+  server.state = predicted.state;
+  server.crouch = predicted.crouch;
 }

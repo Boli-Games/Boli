@@ -87,6 +87,7 @@ export type Entity = {
   stumbleTtl: number;
   controllerId: string | null;
   isolationTimer: number;
+  crouch: boolean;
 };
 
 export type Hunter = {
@@ -105,6 +106,7 @@ export type Hunter = {
   lookAngle: number;
   hp: number;
   controllerId: string | null;
+  crouch: boolean;
 };
 
 export type AmmoCrate = {
@@ -136,8 +138,16 @@ export type World = {
 };
 
 export type ShotEvent = {
+  id: number;
   x: number;
   y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  hitX: number;
+  hitY: number;
+  hitZ: number;
+  hit: boolean;
   ttl: number;
 };
 
@@ -220,7 +230,7 @@ export const ROUND = {
 
 export const VIEW = {
   eyeHeight: 15,
-  crouchEyeHeight: 8.5,
+  crouchEyeHeight: 8.2,
   bodyHeight: 16,
   lookSensitivity: 0.0022,
 } as const;
