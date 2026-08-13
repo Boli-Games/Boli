@@ -59,6 +59,7 @@ const DAWN = {
   sunAlpha: 1,
 };
 
+/** Night sky + cloud stops (t = 0). Tweak these for the dark end of the blend. */
 const NIGHT_SKY = {
   zenith: new THREE.Color(0x0a1438),
   mid: new THREE.Color(0x3a2468),
@@ -71,6 +72,50 @@ const NIGHT_SKY = {
   cloudGreenMid: new THREE.Color(0x3d6b58),
   cloudGreenRim: new THREE.Color(0x7a9e78),
 };
+
+/**
+ * Mid-dawn cloud accents (warm). Blended in while `t` rises, then out toward day white.
+ * Peak mix is around CLOUD_WARM_PEAK (see mixSkyDomeColors).
+ */
+const DAWN_CLOUD = {
+  cloudShadow: new THREE.Color(0x6a3a48),
+  cloudMid: new THREE.Color(0xe09060),
+  cloudRim: new THREE.Color(0xffc8a8),
+  cloudGreenShadow: new THREE.Color(0x4a4038),
+  cloudGreenMid: new THREE.Color(0xc89870),
+  cloudGreenRim: new THREE.Color(0xf0d0b0),
+};
+
+/** Day sky + white clouds (t = 1, dawn finished). Cartoon celeste. */
+const DAY_SKY = {
+  zenith: new THREE.Color(0x3d9ee8),
+  mid: new THREE.Color(0x62b4f0),
+  lower: new THREE.Color(0x8ecaf5),
+  horizon: new THREE.Color(0xb7dff8),
+  cloudShadow: new THREE.Color(0xd6dbe6),
+  cloudMid: new THREE.Color(0xf0f3f8),
+  cloudRim: new THREE.Color(0xffffff),
+  cloudGreenShadow: new THREE.Color(0xd8dde6),
+  cloudGreenMid: new THREE.Color(0xeef1f6),
+  cloudGreenRim: new THREE.Color(0xffffff),
+};
+
+/** Warm horizon wash strength vs day progress; peaks mid-dawn, fades for clear day. */
+const DAWN_WARM_GLOW = new THREE.Color(0xffc196);
+/** Progress `t` where warm cloud tint is strongest before fading to white. */
+const CLOUD_WARM_PEAK = 0.38;
+
+const _skyZenith = new THREE.Color();
+const _skyMid = new THREE.Color();
+const _skyLower = new THREE.Color();
+const _skyHorizon = new THREE.Color();
+const _cloudShadow = new THREE.Color();
+const _cloudMid = new THREE.Color();
+const _cloudRim = new THREE.Color();
+const _cloudGreenShadow = new THREE.Color();
+const _cloudGreenMid = new THREE.Color();
+const _cloudGreenRim = new THREE.Color();
+const _dawnGlow = new THREE.Color();
 
 const MOON_POS = new THREE.Vector3(-260, 210, -380);
 const MOON_DIR = MOON_POS.clone().normalize();
@@ -172,6 +217,7 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       placeCelestial(hour, _sunDir, _moonDir);
       const elapsed = (performance.now() - started) * 0.001;
       mixPalette(t);
+      mixSkyDomeColors(t);
 
       background.copy(_fog);
       fog.color.copy(_fog);
@@ -181,17 +227,28 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       fog.near = near;
       fog.far = fogFarFor(near, far, strength);
 
-      uniforms.zenith.value.copy(_zenith);
-      uniforms.horizon.value.copy(_horizon);
-      uniforms.glow.value.copy(_glow);
+      // Dome gradient + clouds follow the same `t` as lighting (time console / world clock).
+      uniforms.zenith.value.copy(_skyZenith);
+      uniforms.horizon.value.copy(_skyHorizon);
+      uniforms.glow.value.copy(_dawnGlow);
+      uniforms.nightZenith.value.copy(_skyZenith);
+      uniforms.nightMid.value.copy(_skyMid);
+      uniforms.nightLower.value.copy(_skyLower);
+      uniforms.nightHorizon.value.copy(_skyHorizon);
+      uniforms.cloudShadow.value.copy(_cloudShadow);
+      uniforms.cloudMid.value.copy(_cloudMid);
+      uniforms.cloudRim.value.copy(_cloudRim);
+      uniforms.cloudGreenShadow.value.copy(_cloudGreenShadow);
+      uniforms.cloudGreenMid.value.copy(_cloudGreenMid);
+      uniforms.cloudGreenRim.value.copy(_cloudGreenRim);
       uniforms.dawn.value = t;
       uniforms.sunColor.value.copy(_sun);
       uniforms.sunDir.value.copy(_sunDir);
       uniforms.moonDir.value.copy(_moonDir);
-      const sunA = sunBodyAlpha(hour);
-      const moonA = moonBodyAlpha(hour);
-      uniforms.sunAlpha.value = sunA;
-      uniforms.moonAlpha.value = moonA;
+      // Bodies are mutually exclusive; lighting still follows dayAmount (`t`).
+      const bodies = celestialBodyAlpha(hour);
+      uniforms.sunAlpha.value = bodies.sun;
+      uniforms.moonAlpha.value = bodies.moon;
       uniforms.time.value = elapsed;
 
       hemi.color.copy(_hemiSky);
@@ -199,11 +256,11 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       hemi.intensity = mix(NIGHT.hemi, DAWN.hemi, t);
 
       moonLight.color.copy(_moon);
-      moonLight.intensity = 0.08 + 0.5 * moonA;
+      moonLight.intensity = 0.08 + 0.5 * (1 - t);
       moonLight.position.copy(_moonLightPos.copy(_moonDir).multiplyScalar(420));
 
       sunLight.color.copy(_sun);
-      sunLight.intensity = 1.18 * sunA;
+      sunLight.intensity = 1.18 * t;
       sunLight.position.copy(_sunLightPos.copy(_sunDir).multiplyScalar(420));
 
       fill.color.copy(_fill);
@@ -233,7 +290,8 @@ function skyAmountFromMinute(minute: number): number {
 }
 
 /**
- * Single 0–1 day factor for lighting, sun alpha, and moon alpha.
+ * Lighting / sky blend factor (0 night → 1 day). Not used for body visibility —
+ * sun and moon alphas are mutually exclusive via `celestialBodyAlpha`.
  * Dawn: DAWN_START→06:00. Day: 06:00–18:00. Dusk: 18:00–19:30.
  */
 function dayAmount(hour: number): number {
@@ -244,6 +302,36 @@ function dayAmount(hour: number): number {
     return 1;
   }
   return 1 - smoothstep(SUNSET_HOUR, DUSK_END_HOUR, hour);
+}
+
+/**
+ * Mutually exclusive sun/moon body (+ halo) visibility.
+ * Sunrise: moon fades out fully, then sun fades in.
+ * Sunset: sun fades out fully, then moon fades in.
+ * At the midpoint both are 0 — never both > 0.
+ */
+function celestialBodyAlpha(hour: number): { sun: number; moon: number } {
+  if (hour <= SUNRISE_HOUR) {
+    return { sun: 0, moon: 1 };
+  }
+  if (hour < 6) {
+    const u = (hour - SUNRISE_HOUR) / Math.max(0.0001, 6 - SUNRISE_HOUR);
+    if (u < 0.5) {
+      return { sun: 0, moon: 1 - smoothstep(0, 0.5, u) };
+    }
+    return { sun: smoothstep(0.5, 1, u), moon: 0 };
+  }
+  if (hour < SUNSET_HOUR) {
+    return { sun: 1, moon: 0 };
+  }
+  if (hour < DUSK_END_HOUR) {
+    const u = (hour - SUNSET_HOUR) / Math.max(0.0001, DUSK_END_HOUR - SUNSET_HOUR);
+    if (u < 0.5) {
+      return { sun: 1 - smoothstep(0, 0.5, u), moon: 0 };
+    }
+    return { sun: 0, moon: smoothstep(0.5, 1, u) };
+  }
+  return { sun: 0, moon: 1 };
 }
 
 function sunElevation(hour: number): number {
@@ -262,14 +350,6 @@ function moonElevation(hour: number): number {
   }
   const t = hour >= 18 ? (hour - 18) / 12 : (hour + 6) / 12;
   return Math.sin(t * Math.PI);
-}
-
-function sunBodyAlpha(hour: number): number {
-  return dayAmount(hour);
-}
-
-function moonBodyAlpha(hour: number): number {
-  return 1 - dayAmount(hour);
 }
 
 function placeCelestial(hour: number, sunDir: THREE.Vector3, moonDir: THREE.Vector3): void {
@@ -302,6 +382,71 @@ function mixPalette(t: number): void {
   _moon.copy(NIGHT.moon).lerp(DAWN.moon, t);
   _sun.copy(NIGHT.sun).lerp(DAWN.sun, t);
   _fill.copy(NIGHT.fill).lerp(DAWN.fill, t);
+}
+
+/**
+ * Dome + cloud colors from night → day using the same progress `t` as `dayAmount`.
+ * Warm cloud tint peaks near CLOUD_WARM_PEAK, then fades to DAY_SKY whites.
+ */
+function mixSkyDomeColors(t: number): void {
+  const skyT = smoothstep(0, 1, t);
+  _skyZenith.copy(NIGHT_SKY.zenith).lerp(DAY_SKY.zenith, skyT);
+  _skyMid.copy(NIGHT_SKY.mid).lerp(DAY_SKY.mid, skyT);
+  _skyLower.copy(NIGHT_SKY.lower).lerp(DAY_SKY.lower, skyT);
+  _skyHorizon.copy(NIGHT_SKY.horizon).lerp(DAY_SKY.horizon, skyT);
+
+  // Warm wash peaks mid-dawn, then clears for a clean day blue.
+  const warmBand = 4 * skyT * (1 - skyT);
+  _dawnGlow.copy(DAY_SKY.horizon).lerp(DAWN_WARM_GLOW, warmBand);
+
+  mixCloudTowardDay(
+    skyT,
+    NIGHT_SKY.cloudShadow,
+    DAWN_CLOUD.cloudShadow,
+    DAY_SKY.cloudShadow,
+    _cloudShadow,
+  );
+  mixCloudTowardDay(skyT, NIGHT_SKY.cloudMid, DAWN_CLOUD.cloudMid, DAY_SKY.cloudMid, _cloudMid);
+  mixCloudTowardDay(skyT, NIGHT_SKY.cloudRim, DAWN_CLOUD.cloudRim, DAY_SKY.cloudRim, _cloudRim);
+  mixCloudTowardDay(
+    skyT,
+    NIGHT_SKY.cloudGreenShadow,
+    DAWN_CLOUD.cloudGreenShadow,
+    DAY_SKY.cloudGreenShadow,
+    _cloudGreenShadow,
+  );
+  mixCloudTowardDay(
+    skyT,
+    NIGHT_SKY.cloudGreenMid,
+    DAWN_CLOUD.cloudGreenMid,
+    DAY_SKY.cloudGreenMid,
+    _cloudGreenMid,
+  );
+  mixCloudTowardDay(
+    skyT,
+    NIGHT_SKY.cloudGreenRim,
+    DAWN_CLOUD.cloudGreenRim,
+    DAY_SKY.cloudGreenRim,
+    _cloudGreenRim,
+  );
+}
+
+/** Night → warm dawn → day white, keyed off CLOUD_WARM_PEAK. */
+function mixCloudTowardDay(
+  t: number,
+  night: THREE.Color,
+  warm: THREE.Color,
+  day: THREE.Color,
+  out: THREE.Color,
+): void {
+  const peak = Math.max(0.05, Math.min(0.95, CLOUD_WARM_PEAK));
+  if (t <= peak) {
+    const u = smoothstep(0, peak, t);
+    out.copy(night).lerp(warm, u);
+    return;
+  }
+  const u = smoothstep(peak, 1, t);
+  out.copy(warm).lerp(day, u);
 }
 
 function makeSkyMaterial(moonMap: THREE.Texture, sunMap: THREE.Texture): THREE.ShaderMaterial {
@@ -425,9 +570,12 @@ function makeSkyMaterial(moonMap: THREE.Texture, sunMap: THREE.Texture): THREE.S
       }
 
       vec3 dawnGradient(float h) {
+        // Same stop progression as night, using colors already lerped night→day in JS.
         vec3 sky = mix(horizon, zenith, pow(max(h, 0.0), 0.72));
         float band = 1.0 - smoothstep(0.0, 0.34, abs(h - 0.46));
-        return mix(sky, glow, band * dawn * 0.72);
+        // Warm wash peaks mid-dawn (glow is pre-mixed in JS); fades as dawn→1.
+        float warm = band * 4.0 * dawn * (1.0 - dawn);
+        return mix(sky, glow, warm);
       }
 
       void main() {
@@ -463,7 +611,8 @@ function makeSkyMaterial(moonMap: THREE.Texture, sunMap: THREE.Texture): THREE.S
         float spin = time * 0.00013;
         float fade = smoothstep(0.34, 0.42, h) * (1.0 - smoothstep(0.58, 0.70, h));
         fade *= 0.78 + 0.22 * noise(dir.xz * 5.5 + time * 0.008);
-        fade *= (1.0 - moonMask) * (1.0 - dawn);
+        // Keep clouds through dawn/day; only hide under the moon disc.
+        fade *= (1.0 - moonMask);
         float yaw = atan(dir.z, dir.x);
         float purple = wrapClouds(dir, spin, 0.0, 0.20, 0.50) * fade * hazeZone(yaw, 1.13, 0.55, 2.27, -1.2, 0.61, 2.1);
         float green = wrapClouds(dir, spin * 0.85, 0.393, 0.24, 0.46) * fade * hazeZone(yaw, 1.37, -0.8, 2.05, 1.6, 0.47, -0.4);
@@ -589,6 +738,17 @@ function makeSparkleTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/**
+ * Sun disc fill (canvas). Pale warm yellow — tweak these for hue/saturation tests.
+ * Core is closer to white; rim keeps a soft yellow so it still reads as the sun.
+ */
+const SUN_DISC = {
+  core: "#fffdf2",
+  mid: "#fff6d0",
+  rim: "#ffe9a8",
+};
+
+/** Flat cartoon sun disc — same footprint as before; halo stays in the shader. */
 function drawSun(): HTMLCanvasElement {
   const size = 512;
   const canvas = document.createElement("canvas");
@@ -602,110 +762,20 @@ function drawSun(): HTMLCanvasElement {
   const cy = 256;
   const r = 118;
 
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  for (let i = 0; i < 16; i++) {
-    const base = (i / 16) * Math.PI * 2 + 0.07 * Math.sin(i * 2.4);
-    const inner = r + 16 + (i % 3) * 2;
-    const outer = inner + 28 + (i % 5) * 5 + ((i * 3) % 7);
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(base);
-    ctx.strokeStyle = "#111111";
-    ctx.lineWidth = 9 + (i % 4 === 0 ? 2 : 0);
-    ctx.beginPath();
-    ctx.moveTo(0, -inner);
-    ctx.lineTo(2.5 * Math.sin(i * 1.7), -outer);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  const wobble = (angle: number): number =>
-    r * (1 + 0.022 * Math.sin(angle * 5 + 0.4) + 0.014 * Math.sin(angle * 9 - 0.8));
-
+  // Soft fill only — no black outline or rays; glow comes from the shader halo.
+  const fill = ctx.createRadialGradient(cx - 18, cy - 22, r * 0.12, cx, cy, r);
+  fill.addColorStop(0, SUN_DISC.core);
+  fill.addColorStop(0.55, SUN_DISC.mid);
+  fill.addColorStop(1, SUN_DISC.rim);
   ctx.beginPath();
-  for (let i = 0; i <= 72; i++) {
-    const a = (i / 72) * Math.PI * 2;
-    const rr = wobble(a);
-    const x = cx + Math.cos(a) * rr;
-    const y = cy + Math.sin(a) * rr;
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  }
-  ctx.closePath();
-  ctx.fillStyle = "#f4d44a";
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
   ctx.fill();
-
-  ctx.save();
-  ctx.clip();
-  const wash = ctx.createRadialGradient(cx - 18, cy - 22, 12, cx + 16, cy + 28, r + 8);
-  wash.addColorStop(0, "rgba(255, 248, 190, 0.95)");
-  wash.addColorStop(0.45, "rgba(244, 212, 74, 0.2)");
-  wash.addColorStop(1, "rgba(232, 150, 48, 0.7)");
-  ctx.fillStyle = wash;
-  ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 28; i++) {
-    const a = (i * 2.4) % (Math.PI * 2);
-    const d = (i * 17) % (r - 18);
-    ctx.beginPath();
-    ctx.arc(cx + Math.cos(a) * d * 0.55, cy + Math.sin(a) * d * 0.55, 10 + (i % 5) * 3, 0, Math.PI * 2);
-    ctx.fillStyle = i % 2 === 0 ? "rgba(255, 236, 140, 0.18)" : "rgba(220, 130, 40, 0.1)";
-    ctx.fill();
-  }
-  ctx.fillStyle = "#111111";
-  const specks: Array<[number, number, number]> = [
-    [cx + 62, cy - 48, 2.4],
-    [cx + 70, cy - 38, 2.0],
-    [cx + 54, cy - 58, 1.8],
-    [cx - 68, cy + 42, 2.2],
-    [cx - 58, cy + 54, 1.7],
-    [cx + 48, cy + 70, 2.0],
-    [cx - 40, cy - 72, 1.8],
-    [cx + 78, cy + 18, 2.1],
-  ];
-  for (const [x, y, rad] of specks) {
-    ctx.beginPath();
-    ctx.arc(x, y, rad, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.lineWidth = 2.6;
-  ctx.strokeStyle = "#111111";
-  const ticks: Array<[number, number, number, number]> = [
-    [cx + 44, cy - 70, cx + 56, cy - 64],
-    [cx - 72, cy - 8, cx - 60, cy - 2],
-    [cx + 20, cy + 78, cx + 32, cy + 74],
-  ];
-  for (const [x0, y0, x1, y1] of ticks) {
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.beginPath();
-  for (let i = 0; i <= 72; i++) {
-    const a = (i / 72) * Math.PI * 2;
-    const rr = wobble(a);
-    const x = cx + Math.cos(a) * rr;
-    const y = cy + Math.sin(a) * rr;
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  }
-  ctx.closePath();
-  ctx.lineWidth = 13;
-  ctx.strokeStyle = "#111111";
-  ctx.stroke();
 
   return canvas;
 }
 
+/** Flat cartoon moon disc — clean circle, no outline. */
 function drawMoon(): HTMLCanvasElement {
   const size = 512;
   const canvas = document.createElement("canvas");
@@ -719,98 +789,14 @@ function drawMoon(): HTMLCanvasElement {
   const cy = 256;
   const r = 168;
 
-  const ray = (angle: number, inner: number, outer: number) => {
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    ctx.strokeStyle = "#111111";
-    ctx.lineWidth = 7;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(0, -inner);
-    ctx.lineTo(0, -outer);
-    ctx.stroke();
-    ctx.restore();
-  };
-  ray(-0.95, r + 18, r + 52);
-  ray(-0.72, r + 16, r + 44);
-  ray(-1.18, r + 16, r + 40);
-  ray(2.15, r + 18, r + 50);
-  ray(2.38, r + 16, r + 42);
-  ray(1.95, r + 16, r + 38);
-
+  const fill = ctx.createRadialGradient(cx - 28, cy - 32, r * 0.1, cx, cy, r);
+  fill.addColorStop(0, "#ffffff");
+  fill.addColorStop(0.65, "#f0f2f6");
+  fill.addColorStop(1, "#e4e8f0");
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = "#f4f4f4";
+  ctx.fillStyle = fill;
   ctx.fill();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.clip();
-  const shade = ctx.createRadialGradient(cx + 40, cy - 36, 30, cx - 24, cy + 50, r + 10);
-  shade.addColorStop(0, "rgba(255,255,255,0)");
-  shade.addColorStop(0.45, "rgba(210,210,214,0.15)");
-  shade.addColorStop(1, "rgba(168,168,176,0.72)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, size, size);
-
-  const crater = (x: number, y: number, rx: number, ry: number, rot: number) => {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rot);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#9a9aa2";
-    ctx.fill();
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = "#111111";
-    ctx.stroke();
-    ctx.restore();
-  };
-  crater(cx + 36, cy - 28, 28, 20, -0.35);
-  crater(cx - 48, cy + 8, 22, 16, 0.4);
-  crater(cx + 18, cy + 58, 18, 13, -0.2);
-  crater(cx - 20, cy - 70, 14, 10, 0.5);
-  crater(cx + 78, cy + 18, 11, 8, 0.15);
-  crater(cx - 78, cy - 36, 9, 7, -0.4);
-
-  ctx.fillStyle = "#111111";
-  const specks: Array<[number, number]> = [
-    [cx + 70, cy - 60],
-    [cx - 70, cy + 48],
-    [cx + 8, cy + 20],
-    [cx - 30, cy + 70],
-    [cx + 90, cy - 10],
-    [cx - 90, cy + 8],
-    [cx + 52, cy + 88],
-  ];
-  for (const [x, y] of specks) {
-    ctx.beginPath();
-    ctx.arc(x, y, 3.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.lineWidth = 3.2;
-  ctx.strokeStyle = "#111111";
-  ctx.lineCap = "round";
-  const ticks: Array<[number, number, number, number]> = [
-    [cx - 10, cy - 20, cx + 6, cy - 16],
-    [cx + 60, cy + 50, cx + 74, cy + 46],
-    [cx - 60, cy - 8, cx - 48, cy - 2],
-  ];
-  for (const [x0, y0, x1, y1] of ticks) {
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.lineWidth = 14;
-  ctx.strokeStyle = "#111111";
-  ctx.stroke();
 
   return canvas;
 }
