@@ -1,17 +1,12 @@
-import {
-  authAvailable,
-  getProfile,
-  isSignedIn,
-  openSignIn,
-  patchProfile,
-  signOut,
-} from "./auth";
+import { getProfile, patchProfile } from "./auth";
 import { HUNTER_SKINS, skinById, type ProfileData } from "./profile";
 
 export type LobbyMember = {
   id: string;
   name: string;
 };
+
+type MenuScreen = "home" | "create" | "customize";
 
 export function bindMenu(opts: {
   onCreate: () => void;
@@ -26,19 +21,55 @@ export function bindMenu(opts: {
 } {
   const menu = must("#menu");
   const home = must("#home");
+  const screenCreate = must("#screenCreate");
+  const screenCustomize = must("#screenCustomize");
+  const homeChrome = must("#homeChrome");
+  const createSetup = must("#createSetup");
   const lobby = must("#lobby");
   const errorEl = must("#menuError");
+  const homeError = must("#homeError");
   const lobbyError = must("#lobbyError");
+  const lobbyStatus = must("#lobbyStatus");
   const codeShow = must("#codeShow");
   const memberList = must("#memberList");
   const joinInput = must("#joinCode") as HTMLInputElement;
   const startBtn = must("#btnStart") as HTMLButtonElement;
   const nameInput = must("#displayName") as HTMLInputElement;
   const skinGrid = must("#skinGrid");
-  const authStatus = must("#authStatus");
   const unlockNote = must("#unlockNote");
-  const btnSignIn = must("#btnSignIn");
-  const btnSignOut = must("#btnSignOut");
+  const profilePopup = must("#profilePopup");
+  const btnProfile = must("#btnProfile");
+
+  const screens: Record<MenuScreen, HTMLElement> = {
+    home,
+    create: screenCreate,
+    customize: screenCustomize,
+  };
+
+  let screen: MenuScreen = "home";
+  let inLobby = false;
+
+  must("#btnNavCreate").addEventListener("click", () => {
+    closeProfile();
+    showScreen("create");
+  });
+  must("#btnNavCustomize").addEventListener("click", () => {
+    closeProfile();
+    showScreen("customize");
+  });
+  // AJUSTES: botón visual preparado, sin funcionalidad todavía.
+  must("#btnNavSettings").addEventListener("click", (event) => {
+    event.preventDefault();
+  });
+
+  must("#btnBackCreate").addEventListener("click", () => {
+    if (inLobby) {
+      opts.onLeave();
+      return;
+    }
+    showScreen("home");
+  });
+  must("#btnBackCustomize").addEventListener("click", () => showScreen("home"));
 
   must("#btnCreate").addEventListener("click", () => opts.onCreate());
   must("#btnJoin").addEventListener("click", () => {
@@ -54,21 +85,40 @@ export function bindMenu(opts: {
       must("#btnJoin").click();
     }
   });
-  nameInput.addEventListener("change", () => {
-    patchProfile({ displayName: nameInput.value });
-    paintProfile();
-  });
-  nameInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      nameInput.blur();
+
+  btnProfile.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (profilePopup.classList.contains("hidden")) {
+      openProfile();
+    } else {
+      closeProfile();
     }
   });
-  btnSignIn.addEventListener("click", () => openSignIn());
-  btnSignOut.addEventListener("click", () => {
-    void signOut();
+  must("#btnProfileSave").addEventListener("click", () => saveProfileName());
+  must("#btnProfileClose").addEventListener("click", () => closeProfile());
+  profilePopup.addEventListener("click", (event) => event.stopPropagation());
+  nameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      saveProfileName();
+    }
   });
+  document.addEventListener("click", (event) => {
+    if (profilePopup.classList.contains("hidden")) {
+      return;
+    }
+    const target = event.target as Node | null;
+    if (target && (profilePopup.contains(target) || btnProfile.contains(target))) {
+      return;
+    }
+    closeProfile();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !profilePopup.classList.contains("hidden")) {
+      closeProfile();
+    }
+  });
+
   must("#btnStart").addEventListener("click", () => opts.onStart());
-  must("#btnLeave").addEventListener("click", () => opts.onLeave());
   must("#btnCopy").addEventListener("click", async () => {
     const code = codeShow.textContent?.trim() ?? "";
     const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
@@ -80,24 +130,49 @@ export function bindMenu(opts: {
     }
   });
 
-  function paintProfile(): void {
-    const profile = getProfile();
-    if (document.activeElement !== nameInput) {
-      nameInput.value = profile.displayName;
+  function showScreen(next: MenuScreen): void {
+    screen = next;
+    for (const [name, el] of Object.entries(screens) as [MenuScreen, HTMLElement][]) {
+      const active = name === next;
+      el.classList.toggle("hidden", !active);
+      el.setAttribute("aria-hidden", active ? "false" : "true");
     }
-    const signed = isSignedIn();
-    btnSignIn.classList.toggle("hidden", !authAvailable() || signed);
-    btnSignOut.classList.toggle("hidden", !signed);
-    btnSignIn.textContent = signed ? "Entrar" : authAvailable() ? "Entrar" : "Invitado";
-    if (!authAvailable()) {
-      authStatus.textContent = "Invitado (este navegador).";
-      btnSignIn.classList.add("hidden");
-    } else if (signed) {
-      authStatus.textContent = "Sesión activa. El perfil viaja con tu cuenta.";
-    } else {
-      authStatus.textContent = "Entrá para llevar el perfil a otra PC.";
+    homeChrome.classList.toggle("hidden", next !== "home");
+    menu.dataset.screen = next;
+    if (next !== "home") {
+      closeProfile();
     }
-    paintSkins(profile);
+    if (next === "customize") {
+      paintSkins(getProfile());
+    }
+    if (next === "create" && !inLobby) {
+      errorEl.textContent = "";
+    }
+  }
+
+  function openProfile(): void {
+    if (screen !== "home") {
+      return;
+    }
+    nameInput.value = getProfile().displayName;
+    profilePopup.classList.remove("hidden");
+    btnProfile.setAttribute("aria-expanded", "true");
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  function closeProfile(): void {
+    if (!profilePopup.classList.contains("hidden")) {
+      nameInput.value = getProfile().displayName;
+    }
+    profilePopup.classList.add("hidden");
+    btnProfile.setAttribute("aria-expanded", "false");
+  }
+
+  function saveProfileName(): void {
+    patchProfile({ displayName: nameInput.value });
+    nameInput.value = getProfile().displayName;
+    closeProfile();
   }
 
   function paintSkins(profile: ProfileData): void {
@@ -118,27 +193,42 @@ export function bindMenu(opts: {
         }
         patchProfile({ equippedSkin: skin.id });
         unlockNote.textContent = skin.name;
-        paintProfile();
+        paintSkins(getProfile());
       });
       skinGrid.append(btn);
     }
     unlockNote.textContent = skinById(profile.equippedSkin).name;
   }
 
-  paintProfile();
+  function resetCreate(): void {
+    inLobby = false;
+    createSetup.classList.remove("hidden");
+    lobby.classList.add("hidden");
+    lobbyError.textContent = "";
+    errorEl.textContent = "";
+    codeShow.textContent = "----";
+    memberList.innerHTML = "";
+    startBtn.disabled = true;
+    startBtn.textContent = "Empezar";
+    lobbyStatus.textContent = "Esperando jugadores";
+  }
+
+  paintSkins(getProfile());
+  showScreen("home");
 
   return {
     showHome(error = "") {
       menu.classList.remove("hidden");
-      home.classList.remove("hidden");
-      lobby.classList.add("hidden");
-      errorEl.textContent = error;
-      lobbyError.textContent = "";
-      paintProfile();
+      resetCreate();
+      showScreen("home");
+      homeError.textContent = error;
+      closeProfile();
     },
     showLobby(info: { code: string; isHost: boolean; hostId: string; members: LobbyMember[]; you: string }) {
       menu.classList.remove("hidden");
-      home.classList.add("hidden");
+      inLobby = true;
+      showScreen("create");
+      createSetup.classList.add("hidden");
       lobby.classList.remove("hidden");
       codeShow.textContent = info.code;
       memberList.innerHTML = "";
@@ -149,19 +239,33 @@ export function bindMenu(opts: {
         li.textContent = `${member.name}${you}${host}`;
         memberList.append(li);
       }
-      startBtn.disabled = !info.isHost || info.members.length < 2;
+      const ready = info.isHost && info.members.length >= 2;
+      startBtn.disabled = !ready;
       startBtn.textContent = info.isHost
         ? info.members.length < 2
           ? "Esperá a un amigo"
           : "Empezar"
         : "Esperando al anfitrión";
+      if (!info.isHost) {
+        lobbyStatus.textContent = `${info.members.length} jugador${info.members.length === 1 ? "" : "es"} · esperando al anfitrión`;
+      } else if (info.members.length < 2) {
+        lobbyStatus.textContent = `${info.members.length} jugador${info.members.length === 1 ? "" : "es"} · esperando jugadores`;
+      } else {
+        lobbyStatus.textContent = `${info.members.length} jugadores · listo para empezar`;
+      }
       lobbyError.textContent = "";
     },
     hide() {
       menu.classList.add("hidden");
+      closeProfile();
     },
     refreshProfile() {
-      paintProfile();
+      if (screen === "customize") {
+        paintSkins(getProfile());
+      }
+      if (document.activeElement !== nameInput) {
+        nameInput.value = getProfile().displayName;
+      }
     },
   };
 }
