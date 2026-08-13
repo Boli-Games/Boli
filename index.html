@@ -393,14 +393,19 @@
 
       .menu-logo {
         position: relative;
-        width: min(430px, 92vw);
+        width: min(460px, 88vw);
         margin: 0 0 6px;
         flex: 0 0 auto;
+        line-height: 0;
       }
-      .menu-logo svg {
+      .menu-logo img {
         display: block;
         width: 100%;
         height: auto;
+        object-fit: contain;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
       }
       .menu-tagline {
         display: flex;
@@ -755,7 +760,7 @@
 
       @media (max-height: 740px) {
         .menu-logo {
-          width: min(340px, 78vw);
+          width: min(360px, 72vw);
         }
         .menu-tagline {
           margin-bottom: 14px;
@@ -822,51 +827,15 @@
 
       <!-- Pantalla 1: menú principal (única visible al entrar) -->
       <div id="home" class="menu-screen">
-        <div class="menu-logo" aria-hidden="true">
-          <svg viewBox="0 0 720 300" role="img">
-            <title>BOLI</title>
-            <defs>
-              <filter id="logoPop" x="-8%" y="-8%" width="120%" height="130%">
-                <feOffset dx="6" dy="8" in="SourceAlpha" result="off" />
-                <feFlood flood-color="#111" result="black" />
-                <feComposite in="black" in2="off" operator="in" result="shadow" />
-                <feMerge>
-                  <feMergeNode in="shadow" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <g transform="translate(300 10)">
-              <ellipse cx="0" cy="92" rx="54" ry="64" fill="#fff" stroke="#111" stroke-width="8" />
-              <ellipse cx="0" cy="16" rx="40" ry="23" fill="#fff" stroke="#111" stroke-width="8" />
-              <path d="M-50 24 Q0 38 50 24" fill="#fff" stroke="#111" stroke-width="8" stroke-linecap="round" />
-              <circle cx="0" cy="10" r="5" fill="#111" />
-              <circle cx="-16" cy="60" r="6.5" fill="#111" />
-              <circle cx="15" cy="60" r="6.5" fill="#111" />
-              <ellipse cx="0" cy="84" rx="19" ry="15" fill="#111" />
-              <ellipse cx="3" cy="90" rx="11" ry="8" fill="#e23b3b" />
-              <path d="M17 90 q9 12 7 20" fill="#5ec8ff" stroke="#111" stroke-width="3.2" stroke-linecap="round" />
-            </g>
-            <g
-              filter="url(#logoPop)"
-              font-family="Luckiest Guy, Fredoka, sans-serif"
-              font-size="168"
-              fill="#fff"
-              stroke="#111"
-              stroke-width="16"
-              stroke-linejoin="round"
-              paint-order="stroke fill"
-            >
-              <text x="40" y="250">B</text>
-              <text x="214" y="250">O</text>
-              <text x="398" y="250">L</text>
-              <text x="530" y="250">I</text>
-            </g>
-            <g transform="translate(300 10)">
-              <ellipse cx="-60" cy="122" rx="19" ry="14" fill="#fff" stroke="#111" stroke-width="7" transform="rotate(-18 -60 122)" />
-              <ellipse cx="58" cy="124" rx="19" ry="14" fill="#fff" stroke="#111" stroke-width="7" transform="rotate(16 58 124)" />
-            </g>
-          </svg>
+        <div class="menu-logo">
+          <img
+            src="/boli-logo.png"
+            alt="BOLI"
+            width="1536"
+            height="1024"
+            decoding="async"
+            draggable="false"
+          />
         </div>
         <p class="menu-tagline">
           <span class="deco" aria-hidden="true"><i></i><i></i><i></i></span>
