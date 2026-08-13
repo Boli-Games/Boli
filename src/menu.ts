@@ -1,3 +1,4 @@
+import { isMenuMusicMuted, playMenuMusic, stopMenuMusic, toggleMenuMusicMuted } from "./audio";
 import { getProfile, patchProfile } from "./auth";
 import { HUNTER_SKINS, skinById, type ProfileData } from "./profile";
 
@@ -39,6 +40,7 @@ export function bindMenu(opts: {
   const unlockNote = must("#unlockNote");
   const profilePopup = must("#profilePopup");
   const btnProfile = must("#btnProfile");
+  const btnMute = must("#btnMute");
 
   const screens: Record<MenuScreen, HTMLElement> = {
     home,
@@ -93,6 +95,11 @@ export function bindMenu(opts: {
     } else {
       closeProfile();
     }
+  });
+  btnMute.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleMenuMusicMuted();
+    syncMuteButton();
   });
   must("#btnProfileSave").addEventListener("click", () => saveProfileName());
   must("#btnProfileClose").addEventListener("click", () => closeProfile());
@@ -169,6 +176,13 @@ export function bindMenu(opts: {
     btnProfile.setAttribute("aria-expanded", "false");
   }
 
+  function syncMuteButton(): void {
+    const silenced = isMenuMusicMuted();
+    btnMute.classList.toggle("is-muted", silenced);
+    btnMute.setAttribute("aria-pressed", silenced ? "true" : "false");
+    btnMute.setAttribute("aria-label", silenced ? "Activar música" : "Silenciar música");
+  }
+
   function saveProfileName(): void {
     patchProfile({ displayName: nameInput.value });
     nameInput.value = getProfile().displayName;
@@ -215,6 +229,8 @@ export function bindMenu(opts: {
 
   paintSkins(getProfile());
   showScreen("home");
+  syncMuteButton();
+  playMenuMusic();
 
   return {
     showHome(error = "") {
@@ -223,6 +239,7 @@ export function bindMenu(opts: {
       showScreen("home");
       homeError.textContent = error;
       closeProfile();
+      playMenuMusic();
     },
     showLobby(info: { code: string; isHost: boolean; hostId: string; members: LobbyMember[]; you: string }) {
       menu.classList.remove("hidden");
@@ -256,6 +273,7 @@ export function bindMenu(opts: {
       lobbyError.textContent = "";
     },
     hide() {
+      stopMenuMusic();
       menu.classList.add("hidden");
       closeProfile();
     },

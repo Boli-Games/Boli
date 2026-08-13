@@ -319,6 +319,44 @@
         display: none !important;
       }
 
+      #btnMute {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        background: #fff;
+        border: 4px solid #111;
+        box-shadow: 3px 4px 0 #111;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+      }
+      #btnMute svg {
+        width: 22px;
+        height: 22px;
+        display: none;
+      }
+      #btnMute .mute-icon-on {
+        display: block;
+      }
+      #btnMute.is-muted .mute-icon-on {
+        display: none;
+      }
+      #btnMute.is-muted .mute-icon-off {
+        display: block;
+      }
+      #btnMute:hover {
+        transform: translate(-1px, -1px);
+        box-shadow: 4px 5px 0 #111;
+      }
+      #btnMute:active {
+        transform: translate(2px, 3px);
+        box-shadow: 1px 2px 0 #111;
+      }
+
       #btnProfile {
         position: absolute;
         top: 16px;
@@ -728,6 +766,12 @@
         }
       }
       @media (max-width: 520px) {
+        #btnMute {
+          width: 40px;
+          height: 40px;
+          top: 12px;
+          left: 12px;
+        }
         #btnProfile {
           width: 52px;
           height: 52px;
@@ -852,8 +896,19 @@
         </div>
       </div>
 
-      <!-- Chrome del menú principal: perfil + marca (solo visibles en home) -->
+      <!-- Chrome del menú principal: mute + perfil + marca (solo visibles en home) -->
       <div id="homeChrome">
+        <button type="button" id="btnMute" aria-label="Silenciar música" aria-pressed="false">
+          <svg class="mute-icon-on" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9h4l5-4v14l-5-4H3z" fill="#111" />
+            <path d="M16 9.2c1.2.9 1.2 4.7 0 5.6" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round" />
+            <path d="M19 7c2.2 1.8 2.2 8.2 0 10" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+          <svg class="mute-icon-off" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9h4l5-4v14l-5-4H3z" fill="#111" />
+            <path d="M16 8.5l6 7M22 8.5l-6 7" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+        </button>
         <span class="profile-spark" aria-hidden="true">
           <svg width="28" height="22" viewBox="0 0 28 22" fill="none">
             <path d="M8 18 L4 4" stroke="#111" stroke-width="2.4" stroke-linecap="round" />
