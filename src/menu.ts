@@ -4,7 +4,6 @@ export type LobbyMember = {
 };
 
 export function bindMenu(opts: {
-  onSolo: () => void;
   onCreate: () => void;
   onJoin: (code: string) => void;
   onStart: () => void;
@@ -24,7 +23,6 @@ export function bindMenu(opts: {
   const joinInput = must("#joinCode") as HTMLInputElement;
   const startBtn = must("#btnStart") as HTMLButtonElement;
 
-  must("#btnSolo").addEventListener("click", () => opts.onSolo());
   must("#btnCreate").addEventListener("click", () => opts.onCreate());
   must("#btnJoin").addEventListener("click", () => {
     const code = joinInput.value.trim().toUpperCase();

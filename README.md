@@ -1,6 +1,6 @@
 # Boli
 
-Escondite en primera persona. Un cazador entre la manada; el resto de los jugadores se hacen los bolis. Podés jugar solo o en una partida privada con amigos.
+Escondite en primera persona. Un cazador entre la manada; el resto de los jugadores se hacen los bolis. Se juega en partidas privadas con amigos.
 
 ## Cómo se gana
 
@@ -10,11 +10,8 @@ Disparar es una apuesta: 8 cartuchos, 3 impactos para tumbar, −20 HP si le peg
 
 ## Menú
 
-- **Jugar solo** — un infiltrado y un cazador con Tab para cambiar de rol.
 - **Crear partida privada** — código de 4 letras. Al empezar se sortea 1 cazador y el resto infiltrados.
 - **Unirse** — el código, o un link `?room=K7MQ`.
-
-En online, Tab no cambia el rol.
 
 ## Controles
 

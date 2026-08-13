@@ -608,7 +608,6 @@ function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hun
   } else {
     hud.banner.classList.add("hidden");
   }
-  const tabHint = opts.online ? "" : " · Tab: cambiar rol";
   if (opts.role === "HUNTER") {
     hud.mode.textContent = `${state.accusationsLeft} cartuchos`;
     hud.mode.classList.toggle("on", state.accusationsLeft > 0);
@@ -617,7 +616,7 @@ function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hun
     hud.hpFill.style.width = `${Math.max(0, Math.min(100, hpRatio * 100))}%`;
     hud.hpFill.classList.toggle("mid", hpRatio <= 0.5 && hpRatio > 0.25);
     hud.hpFill.classList.toggle("low", hpRatio <= 0.25);
-    hud.hint.textContent = `Clic: disparar${tabHint} · Espacio: menú`;
+    hud.hint.textContent = "Clic: disparar · Espacio: menú";
     hud.mission.classList.add("hidden");
     hud.lockTitle.textContent = "Sos el cazador";
     hud.lockBody.textContent =
@@ -626,7 +625,7 @@ function updateHud(hud: Hud, state: GameState, opts: ViewOpts, activeHunter: Hun
     hud.mode.textContent = opts.boliMode ? "Modo boli ON" : "Shift: modo boli";
     hud.mode.classList.toggle("on", opts.boliMode);
     hud.hpWrap.classList.add("hidden");
-    hud.hint.textContent = `Shift: modo boli${tabHint} · Espacio: menú`;
+    hud.hint.textContent = "Shift: modo boli · Espacio: menú";
     hud.mission.classList.remove("hidden");
     hud.mission.textContent = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
     hud.lockTitle.textContent = "Hacete el boli";

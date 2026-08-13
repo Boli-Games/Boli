@@ -8,7 +8,6 @@ import {
   fireAtEntity,
   hunterForController,
   playerEntity,
-  revealInfiltrator,
   snapshotOf,
   tickGame,
 } from "./sim/game";
@@ -47,7 +46,7 @@ type OnlineSession = {
   snapAcc: number;
 };
 
-let mode: "menu" | "solo" | "online" = "menu";
+let mode: "menu" | "online" = "menu";
 let state: GameState | null = null;
 let online: OnlineSession | null = null;
 let role: ControlRole = "INFILTRATOR";
@@ -61,28 +60,11 @@ let last = performance.now();
 let assigned = false;
 
 const menu = bindMenu({
-  onSolo: () => startSolo(),
   onCreate: () => joinRoom(randomRoomCode(), true),
   onJoin: (code) => joinRoom(code, false),
   onStart: () => online?.room.send({ t: "start" }),
   onLeave: () => backToMenu(),
 });
-
-function startSolo(): void {
-  teardownOnline();
-  state = createGame();
-  view.rebuild(state);
-  mode = "solo";
-  role = "INFILTRATOR";
-  hunterIndex = 0;
-  infiltratorYaw = playerEntity(state)?.angle ?? 0;
-  infiltratorPitch = 0;
-  hunterYaw = state.hunter.angle;
-  hunterPitch = 0;
-  acc = 0;
-  assigned = true;
-  enterPlay();
-}
 
 function joinRoom(code: string, created: boolean): void {
   teardownOnline();
@@ -260,33 +242,12 @@ function frame(now: number): void {
     return;
   }
 
-  const onlineMode = mode === "online";
-  const localId = onlineMode && online ? online.localId : "local";
+  const localId = online?.localId ?? "";
 
   if (frameInput.restart) {
-    if (onlineMode) {
-      backToMenu();
-      requestAnimationFrame(frame);
-      return;
-    }
-    startSolo();
-  }
-  if (!onlineMode && frameInput.reveal) {
-    revealInfiltrator(state);
-  }
-  if (!onlineMode && state.promotedControllerId === "local") {
-    role = "HUNTER";
-    hunterIndex = 0;
-    hunterYaw = state.hunter.angle;
-    hunterPitch = state.hunter.pitch;
-    state.promotedControllerId = null;
-  }
-  if (!onlineMode && frameInput.toggleView && (role === "INFILTRATOR" || playerEntity(state))) {
-    role = role === "INFILTRATOR" ? "HUNTER" : "INFILTRATOR";
-    hunterYaw = state.hunter.angle;
-    hunterPitch = state.hunter.pitch;
-    infiltratorYaw = playerEntity(state)?.angle ?? infiltratorYaw;
-    hunterIndex = 0;
+    backToMenu();
+    requestAnimationFrame(frame);
+    return;
   }
 
   const wasLocked = frameInput.pointerLocked;
@@ -328,40 +289,32 @@ function frame(now: number): void {
     targetId,
   };
 
-  if (onlineMode && online && !online.isHost) {
+  if (online && !online.isHost) {
     online.room.send({ t: "input", input: net });
   }
 
-  if (!onlineMode || online?.isHost) {
+  if (online?.isHost) {
     while (acc >= FIXED_DT) {
       const pack = packInputs(net, localId);
       tickGame(state, pack, FIXED_DT);
-      resolveShots(pack, localId, net);
+      resolveShots(localId, net);
       acc -= FIXED_DT;
-      if (online?.isHost) {
-        online.snapAcc += 1;
-        if (online.snapAcc >= SNAP_EVERY) {
-          online.snapAcc = 0;
-          online.room.send({ t: "snapshot", snap: snapshotOf(state) });
-        }
+      online.snapAcc += 1;
+      if (online.snapAcc >= SNAP_EVERY) {
+        online.snapAcc = 0;
+        online.room.send({ t: "snapshot", snap: snapshotOf(state) });
       }
     }
   } else {
     acc = 0;
   }
 
-  if (onlineMode) {
-    syncRoleFromState(false);
-  }
+  syncRoleFromState(false);
 
   const player = playerEntity(state, localId);
   if (player && (boliMode || role === "HUNTER")) {
     infiltratorYaw += shortestAngleDiff(infiltratorYaw, player.angle) * Math.min(1, raw * 6);
     infiltratorPitch += (0 - infiltratorPitch) * Math.min(1, raw * 5);
-  }
-  if (!onlineMode && role === "INFILTRATOR") {
-    hunterYaw = state.hunter.angle;
-    hunterPitch = state.hunter.pitch;
   }
 
   if (state.phase !== "PLAYING") {
@@ -376,7 +329,7 @@ function frame(now: number): void {
     pointerLocked: wasLocked,
     localId,
     hunterIndex,
-    online: onlineMode,
+    online: true,
   });
   requestAnimationFrame(frame);
 }
@@ -385,7 +338,7 @@ function packInputs(local: NetInput, localId: string) {
   const infiltrators: Record<string, { forward: number; strafe: number; yaw: number; boliMode: boolean }> = {};
   const hunters: Record<string, { forward: number; strafe: number; yaw: number; pitch: number }> = {};
   const add = (id: string, net: NetInput) => {
-    if (hunterForController(state!, id) || (id === "local" && role === "HUNTER")) {
+    if (hunterForController(state!, id)) {
       hunters[id] = net;
     } else {
       infiltrators[id] = net;
@@ -400,11 +353,7 @@ function packInputs(local: NetInput, localId: string) {
   return { infiltrators, hunters };
 }
 
-function resolveShots(
-  pack: ReturnType<typeof packInputs>,
-  localId: string,
-  local: NetInput,
-): void {
+function resolveShots(localId: string, local: NetInput): void {
   if (!state) {
     return;
   }
@@ -423,8 +372,7 @@ function resolveShots(
   }
   for (const shot of shots) {
     const found = hunterForController(state, shot.id);
-    const hunter =
-      found?.hunter ?? (shot.id === "local" && pack.hunters.local ? state.hunter : null);
+    const hunter = found?.hunter;
     if (!hunter) {
       continue;
     }
