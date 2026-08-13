@@ -1,0 +1,19 @@
+{
+  "name": "boli-rooms",
+  "main": "party/server.ts",
+  "compatibility_date": "2024-11-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BoliRoom",
+        "class_name": "BoliRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BoliRoom"]
+    }
+  ]
+}

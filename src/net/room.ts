@@ -13,9 +13,18 @@ export function connectRoom(opts: {
   onMessage: (msg: ServerMsg) => void;
   onClose: () => void;
 }): RoomClient {
-  const host = import.meta.env.VITE_PARTYKIT_HOST || "127.0.0.1:1999";
+  const host = import.meta.env.VITE_PARTYKIT_HOST ?? (import.meta.env.DEV ? "127.0.0.1:8787" : "");
+  if (!host) {
+    queueMicrotask(() => opts.onClose());
+    return {
+      id: "",
+      send() {},
+      close() {},
+    };
+  }
   const socket = new PartySocket({
     host,
+    party: "boli-room",
     room: opts.code,
   });
 

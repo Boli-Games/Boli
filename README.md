@@ -31,4 +31,4 @@ npm run party:dev
 npm run dev
 ```
 
-`party:dev` levanta las salas en `127.0.0.1:1999`. El cliente Vite usa `VITE_PARTYKIT_HOST` si está definido; si no, ese host local.
+`party:dev` (Wrangler) levanta las salas en `127.0.0.1:8787`. En producción el cliente usa `VITE_PARTYKIT_HOST`.

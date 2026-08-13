@@ -1,4 +1,4 @@
-import type * as Party from "partykit/server";
+import { Server, type Connection, routePartykitRequest } from "partyserver";
 
 const MAX_PLAYERS = 8;
 
@@ -17,14 +17,12 @@ type ServerMsg =
   | { t: "error"; message: string }
   | { t: "closed"; reason: string };
 
-export default class BoliRoom implements Party.Server {
+export class BoliRoom extends Server {
   hostId: string | null = null;
   playing = false;
   names = new Map<string, string>();
 
-  constructor(readonly room: Party.Room) {}
-
-  onConnect(conn: Party.Connection): void {
+  onConnect(conn: Connection): void {
     if (this.playing) {
       send(conn, { t: "error", message: "La ronda ya empezó." });
       conn.close();
@@ -48,7 +46,7 @@ export default class BoliRoom implements Party.Server {
     this.broadcastLobby();
   }
 
-  onMessage(raw: string | ArrayBuffer, sender: Party.Connection): void {
+  onMessage(conn: Connection, raw: string | ArrayBuffer): void {
     if (typeof raw !== "string") {
       return;
     }
@@ -60,41 +58,41 @@ export default class BoliRoom implements Party.Server {
     }
 
     if (msg.t === "hello") {
-      this.names.set(sender.id, (msg.name ?? "Jugador").slice(0, 18) || "Jugador");
+      this.names.set(conn.id, (msg.name ?? "Jugador").slice(0, 18) || "Jugador");
       this.broadcastLobby();
       return;
     }
 
     if (msg.t === "start") {
-      if (sender.id !== this.hostId || this.playing) {
+      if (conn.id !== this.hostId || this.playing) {
         return;
       }
       const ids = [...this.names.keys()];
       if (ids.length < 2) {
-        send(sender, { t: "error", message: "Hace falta al menos 2 jugadores." });
+        send(conn, { t: "error", message: "Hace falta al menos 2 jugadores." });
         return;
       }
       shuffle(ids);
       this.playing = true;
-      this.broadcast({ t: "start", hunterId: ids[0], hiderIds: ids.slice(1), seed: Date.now() });
+      this.emit({ t: "start", hunterId: ids[0], hiderIds: ids.slice(1), seed: Date.now() });
       return;
     }
 
     if (msg.t === "input") {
-      this.broadcast({ t: "input", from: sender.id, input: msg.input }, sender.id);
+      this.emit({ t: "input", from: conn.id, input: msg.input }, conn.id);
       return;
     }
 
     if (msg.t === "snapshot") {
-      this.broadcast({ t: "snapshot", snap: msg.snap }, sender.id);
+      this.emit({ t: "snapshot", snap: msg.snap }, conn.id);
     }
   }
 
-  onClose(conn: Party.Connection): void {
+  onClose(conn: Connection): void {
     this.names.delete(conn.id);
     if (conn.id === this.hostId) {
-      this.broadcast({ t: "closed", reason: "El anfitrión se fue." });
-      for (const other of this.room.getConnections()) {
+      this.emit({ t: "closed", reason: "El anfitrión se fue." });
+      for (const other of this.getConnections()) {
         other.close();
       }
       this.hostId = null;
@@ -115,12 +113,12 @@ export default class BoliRoom implements Party.Server {
     if (!this.hostId) {
       return;
     }
-    this.broadcast({ t: "lobby", hostId: this.hostId, members: this.members() });
+    this.emit({ t: "lobby", hostId: this.hostId, members: this.members() });
   }
 
-  broadcast(msg: ServerMsg, except?: string): void {
+  emit(msg: ServerMsg, except?: string): void {
     const raw = JSON.stringify(msg);
-    for (const conn of this.room.getConnections()) {
+    for (const conn of this.getConnections()) {
       if (conn.id !== except) {
         conn.send(raw);
       }
@@ -128,7 +126,7 @@ export default class BoliRoom implements Party.Server {
   }
 }
 
-function send(conn: Party.Connection, msg: ServerMsg): void {
+function send(conn: Connection, msg: ServerMsg): void {
   conn.send(JSON.stringify(msg));
 }
 
@@ -140,3 +138,12 @@ function shuffle(items: string[]): void {
     items[j] = tmp;
   }
 }
+
+export default {
+  async fetch(request: Request, env: Record<string, unknown>): Promise<Response> {
+    return (
+      (await routePartykitRequest(request, env)) ??
+      new Response("boli rooms", { status: 200 })
+    );
+  },
+};
