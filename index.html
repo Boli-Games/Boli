@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boli</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #12151a;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #f3ead2;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+      #top {
+        display: flex;
+        gap: 18px;
+        align-items: baseline;
+        padding: 14px 18px;
+        background: linear-gradient(to bottom, rgba(10, 12, 16, 0.55), transparent);
+        font-size: 14px;
+      }
+      #time {
+        font-size: 18px;
+        font-weight: 700;
+      }
+      #mode.on {
+        color: #9ee7b0;
+      }
+      #mission {
+        color: #e6d39a;
+      }
+      #hpwrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #hpwrap.hidden {
+        display: none;
+      }
+      #hpbar {
+        width: 110px;
+        height: 8px;
+        background: rgba(10, 12, 16, 0.55);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      #hpfill {
+        display: block;
+        height: 100%;
+        width: 100%;
+        background: #7dcea0;
+      }
+      #hpfill.mid {
+        background: #e6c35c;
+      }
+      #hpfill.low {
+        background: #c45c4a;
+      }
+      #banner {
+        position: absolute;
+        left: 50%;
+        top: 52px;
+        transform: translateX(-50%);
+        background: rgba(10, 12, 16, 0.62);
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 15px;
+        letter-spacing: 0.02em;
+      }
+      #hint {
+        margin-left: auto;
+        color: #9aa3ad;
+        font-size: 13px;
+      }
+      #crosshair {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        color: rgba(243, 234, 210, 0.55);
+        font-size: 18px;
+        line-height: 1;
+      }
+      #lock,
+      #end {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        background: rgba(10, 12, 16, 0.72);
+        padding: 22px 28px;
+        border-radius: 10px;
+        max-width: 420px;
+      }
+      #lock h1,
+      #end h1 {
+        font-size: 28px;
+        margin-bottom: 8px;
+      }
+      #lock p,
+      #end p {
+        color: #c5c0b2;
+        font-size: 15px;
+        line-height: 1.4;
+      }
+      .hidden {
+        display: none;
+      }
+      #hud.hidden {
+        display: none;
+      }
+      #menu {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at center, #1a2028 0%, #12151a 70%);
+      }
+      #menu.hidden {
+        display: none;
+      }
+      .panel {
+        width: min(420px, calc(100% - 32px));
+        background: rgba(10, 12, 16, 0.82);
+        padding: 28px 30px;
+        border-radius: 12px;
+        text-align: center;
+      }
+      .panel h1 {
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+      }
+      .panel .tag {
+        color: #9aa3ad;
+        font-size: 15px;
+        margin-bottom: 22px;
+        line-height: 1.45;
+      }
+      .panel button,
+      .panel input {
+        font: inherit;
+        color: #f3ead2;
+      }
+      .panel button {
+        display: block;
+        width: 100%;
+        margin: 8px 0;
+        padding: 12px 16px;
+        background: #2a3340;
+        border: 1px solid #3d4a5a;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .panel button:hover:not(:disabled) {
+        background: #354354;
+      }
+      .panel button.primary {
+        background: #3d5c48;
+        border-color: #5a7d64;
+      }
+      .panel button.primary:hover:not(:disabled) {
+        background: #4a6e56;
+      }
+      .panel button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .panel input {
+        width: 100%;
+        margin: 8px 0;
+        padding: 12px 16px;
+        background: #1a1f27;
+        border: 1px solid #3d4a5a;
+        border-radius: 8px;
+        text-align: center;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+      }
+      .panel input:focus {
+        outline: 1px solid #7dcea0;
+      }
+      #codeShow {
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        margin: 12px 0 8px;
+      }
+      #memberList {
+        list-style: none;
+        text-align: left;
+        margin: 12px 0 16px;
+        color: #c5c0b2;
+        font-size: 15px;
+      }
+      #memberList li {
+        padding: 4px 0;
+      }
+      #menuError {
+        color: #e08a7a;
+        font-size: 14px;
+        min-height: 1.2em;
+        margin-top: 8px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row input {
+        flex: 1;
+        margin: 8px 0;
+      }
+      .row button {
+        width: auto;
+        margin: 8px 0;
+        padding: 12px 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="menu">
+      <div id="home" class="panel">
+        <h1>Boli</h1>
+        <p class="tag">Escondite entre la manada. Un cazador. El resto, bolis.</p>
+        <button type="button" class="primary" id="btnSolo">Jugar solo</button>
+        <button type="button" id="btnCreate">Crear partida privada</button>
+        <div class="row">
+          <input id="joinCode" maxlength="4" placeholder="CÓDIGO" autocomplete="off" />
+          <button type="button" id="btnJoin">Unirse</button>
+        </div>
+        <p id="menuError"></p>
+      </div>
+      <div id="lobby" class="panel hidden">
+        <h1>Sala</h1>
+        <p class="tag">Compartí el código. Al empezar se sortea quién es el cazador.</p>
+        <div id="codeShow">----</div>
+        <ul id="memberList"></ul>
+        <button type="button" class="primary" id="btnStart">Empezar</button>
+        <button type="button" id="btnCopy">Copiar enlace</button>
+        <button type="button" id="btnLeave">Volver</button>
+        <p id="lobbyError"></p>
+      </div>
+    </div>
+    <div id="hud" class="hidden">
+      <div id="top">
+        <span id="time">10:00</span>
+        <span id="mode">Shift: modo boli</span>
+        <span id="hpwrap" class="hidden"><span id="hpbar"><span id="hpfill"></span></span></span>
+        <span id="mission">Misión 0/3</span>
+        <span id="hint">Tab: ser el cazador · Espacio: reiniciar</span>
+      </div>
+      <div id="banner" class="hidden"></div>
+      <div id="crosshair">+</div>
+      <div id="lock">
+        <h1>Hacete el boli</h1>
+        <p>Clic para mirar. Completá la misión haciéndote el boli. El cazador está entre la gente, con la escopeta. Tab cambia el rol.</p>
+      </div>
+      <div id="end" class="hidden">
+        <h1></h1>
+        <p>Espacio para otra ronda</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
