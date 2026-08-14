@@ -1,4 +1,4 @@
-export type BoliState = "WANDER" | "PAUSE" | "REGROUP" | "REACT";
+export type BoliState = "WANDER" | "PAUSE" | "REGROUP" | "REACT" | "DANCE";
 
 export type BehaviorCheckKind = "fountain" | "sit" | "house";
 
@@ -89,6 +89,23 @@ export type Entity = {
   isolationTimer: number;
   crouch: boolean;
   skinId: number;
+  /** Seconds without meaningful walk progress. */
+  stuckTimer: number;
+  /** Position of the last accepted progress checkpoint. */
+  stuckX: number;
+  stuckY: number;
+  /** Distance to target at that checkpoint. */
+  stuckGoalDist: number;
+  /** Brief stand-still after a stuck detect. Does not by itself drop the goal. */
+  stuckRecoverTtl: number;
+  /** Failed recoveries against the current directed goal. */
+  stuckRetries: number;
+  /** Last sample: planar speed (u/s). */
+  stuckSpeed: number;
+  /** Last sample: speed projected toward the goal (u/s). */
+  stuckToward: number;
+  /** Smoothed useful progress (u/s). */
+  stuckUseful: number;
 };
 
 export type Hunter = {
@@ -187,7 +204,27 @@ export const RHYTHM = {
   radius: 5.5,
   pauseMin: 1.2,
   pauseMax: 2.0,
+  danceMin: 2.6,
+  danceMax: 4.2,
   wanderArriveSlack: 6,
+  /**
+   * Mark stuck after this long with too little useful progress toward the goal.
+   * Lateral wall-slides do not reset this timer.
+   */
+  stuckSeconds: 2,
+  /**
+   * Useful progress must reach this fraction of RHYTHM.speed.
+   * 0.45 ≈ 10.8 u/s: a free walk (~24) passes; a wall-slide (~0–6 toward-goal) does not.
+   */
+  stuckApproachRatio: 0.45,
+  /** Movement counts as "toward the goal" if its alignment is at least this. */
+  stuckAlignMin: 0.5,
+  /** EMA time constant (seconds) so one collision jitter frame cannot reset the timer. */
+  stuckUsefulTau: 0.18,
+  stuckRecoverMin: 0.25,
+  stuckRecoverMax: 0.4,
+  /** Extra retries for a non-check regroup before abandoning. Checks keep the goal. */
+  stuckRetryMax: 2,
   walkBouncePeriod: 0.35,
   walkBounceAmp: 0.9,
   headTurnPeriod: 2.4,

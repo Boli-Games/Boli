@@ -59,6 +59,15 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
       isolationTimer: 0,
       crouch: false,
       skinId: i % 3,
+      stuckTimer: 0,
+      stuckX: spawn.x,
+      stuckY: spawn.y,
+      stuckGoalDist: 0,
+      stuckRecoverTtl: 0,
+      stuckRetries: 0,
+      stuckSpeed: 0,
+      stuckToward: 0,
+      stuckUseful: 0,
     };
     entity.lookAngle = entity.angle;
     if (!entity.isPlayer) {
@@ -416,6 +425,19 @@ export function applySnapshot(
       entity.skinId = Number.isFinite(n) ? n % 3 : 0;
     } else {
       entity.skinId = ((entity.skinId % 3) + 3) % 3;
+    }
+    if (typeof entity.stuckTimer !== "number") {
+      entity.stuckTimer = 0;
+      entity.stuckX = entity.x;
+      entity.stuckY = entity.y;
+      entity.stuckGoalDist = Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y);
+    }
+    if (typeof entity.stuckRecoverTtl !== "number") {
+      entity.stuckRecoverTtl = 0;
+      entity.stuckRetries = 0;
+      entity.stuckSpeed = 0;
+      entity.stuckToward = 0;
+      entity.stuckUseful = 0;
     }
   }
   if (keptHunterCopy && localId) {
