@@ -74,10 +74,10 @@ function buildIdle(hipBind: THREE.Vector3): THREE.AnimationClip {
     chestQ.push([1.2 * breath, 0.4 * -slow, 0]);
     neckQ.push([0.5 * breath, 0.9 * slow, 0]);
     headQ.push([0.6 * breath, 1.8 * slow, 0]);
-    lArm.push([0, 1.4 * slow, -8 - 1.6 * breath]);
-    rArm.push([0, 1.2 * -slow, 8 + 1.4 * breath]);
-    lFore.push([0, 0, -6 - 1.2 * breath]);
-    rFore.push([0, 0, 6 + 1.2 * breath]);
+    lArm.push([0, 1.4 * slow, 40 + 2.2 * breath]);
+    rArm.push([0, 1.2 * -slow, -40 - 2.0 * breath]);
+    lFore.push([0, 0, 16 + 1.4 * breath]);
+    rFore.push([0, 0, -16 - 1.4 * breath]);
   }
 
   return new THREE.AnimationClip(CLIP_IDLE, duration, [
@@ -139,10 +139,10 @@ function buildWalk(hipBind: THREE.Vector3): THREE.AnimationClip {
     rLowLeg.push([18 + 42 * liftR, 0, 0]);
     lFoot.push([-10 * c + 8 * liftL, 0, 0]);
     rFoot.push([10 * c + 8 * liftR, 0, 0]);
-    lArm.push([0, -30 * c, -10]);
-    rArm.push([0, -30 * c, 10]);
-    lFore.push([0, -8 * Math.max(0, -c), -12 - 8 * Math.max(0, c)]);
-    rFore.push([0, 8 * Math.max(0, c), 12 + 8 * Math.max(0, -c)]);
+    lArm.push([0, -30 * c, 32]);
+    rArm.push([0, -30 * c, -32]);
+    lFore.push([0, -8 * Math.max(0, -c), 18 + 8 * Math.max(0, c)]);
+    rFore.push([0, 8 * Math.max(0, c), -18 - 8 * Math.max(0, -c)]);
     lHand.push([0, -4 * c, 0]);
     rHand.push([0, -4 * c, 0]);
   }
@@ -222,8 +222,8 @@ function buildCrouchIdle(hipBind: THREE.Vector3): THREE.AnimationClip {
     rLow.push([base.rLow, 0, 0]);
     lFoot.push([-24, 0, 0]);
     rFoot.push([-24, 0, 0]);
-    lArm.push([0, 4 + 1.5 * Math.sin(u), -18]);
-    rArm.push([0, -6 + 1.2 * Math.sin(u + 0.5), 22]);
+    lArm.push([0, 4 + 1.5 * Math.sin(u), 36]);
+    rArm.push([0, -6 + 1.2 * Math.sin(u + 0.5), -40]);
   }
 
   return new THREE.AnimationClip(CLIP_CROUCH_IDLE, duration, [
@@ -274,8 +274,8 @@ function buildCrouchWalk(hipBind: THREE.Vector3): THREE.AnimationClip {
     rLow.push([base.rLow + 10 * Math.max(0, -s), 0, 0]);
     lFoot.push([-24 + 6 * c, 0, 0]);
     rFoot.push([-24 - 6 * c, 0, 0]);
-    lArm.push([0, -12 * c, -16]);
-    rArm.push([0, -12 * c, 20]);
+    lArm.push([0, -12 * c, 34]);
+    rArm.push([0, -12 * c, -38]);
   }
 
   return new THREE.AnimationClip(CLIP_CROUCH_WALK, duration, [

@@ -114,6 +114,32 @@ function findLambert(root: THREE.Object3D): THREE.MeshLambertMaterial | null {
   return found;
 }
 
+function rebindSkeleton(root: THREE.Object3D): void {
+  const bones = new Map<string, THREE.Bone>();
+  root.traverse((obj) => {
+    const bone = obj as THREE.Bone;
+    if (bone.isBone) {
+      bones.set(bone.name, bone);
+    }
+  });
+  root.traverse((obj) => {
+    const mesh = obj as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh || !mesh.skeleton) {
+      return;
+    }
+    mesh.bindMode = "attached";
+    mesh.skeleton.bones = mesh.skeleton.bones.map((bone) => {
+      if (!bone) {
+        return bone;
+      }
+      return bones.get(bone.name) ?? bone;
+    });
+    mesh.bind(mesh.skeleton, mesh.bindMatrix);
+    mesh.normalizeSkinWeights();
+    mesh.frustumCulled = false;
+  });
+}
+
 export function preloadBoliCharacters(): Promise<void> {
   return loadTemplate().then(() => undefined);
 }
@@ -130,12 +156,13 @@ export function createBoliCharacter(opts: {
   seed?: string;
 }): THREE.Group {
   const root = new THREE.Group();
-  root.scale.setScalar(BOLI_GAME_SCALE);
   if (!template) {
     return root;
   }
 
   const model = cloneSkinned(template.scene);
+  model.scale.setScalar(BOLI_GAME_SCALE);
+  rebindSkeleton(model);
   const bodyMat = template.lambert.clone();
   bodyMat.color.setHex(opts.color);
   model.traverse((obj) => {
@@ -158,7 +185,7 @@ export function createBoliCharacter(opts: {
       action.setLoop(THREE.LoopRepeat, Infinity);
     }
     action.enabled = true;
-    action.setEffectiveWeight(0);
+    action.weight = 0;
     actions.set(clip.name, action);
   }
 
@@ -176,11 +203,12 @@ export function createBoliCharacter(opts: {
   const cadence = 0.9 + hash01(seed, 3) * 0.2;
   const idle = actions.get(CLIP_IDLE);
   if (idle) {
-    idle.setEffectiveWeight(1);
+    idle.weight = 1;
     idle.time = phase * idle.getClip().duration;
     idle.timeScale = idleScale;
     idle.play();
   }
+  mixer.update(0);
 
   const data: BoliCharacterUserData = {
     kind: "rigged",
@@ -196,6 +224,7 @@ export function createBoliCharacter(opts: {
   Object.assign(root.userData, data);
   root.userData._cadence = cadence;
   root.userData.bodyMat = bodyMat;
+  root.userData.mixer = mixer;
   return root;
 }
 
@@ -209,7 +238,7 @@ export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void
   }
   ensurePhase(mesh, loco.id);
   const speed = sampleMoveSpeed(mesh, loco.x, loco.y);
-  const moving = loco.walking && !loco.downed && speed > MOVE_EPS;
+  const moving = !loco.downed && (loco.walking || speed > MOVE_EPS);
   const clip = loco.downed
     ? CLIP_DOWNED
     : loco.crouch && moving
@@ -224,10 +253,11 @@ export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void
 }
 
 export function tickBoliAnimation(mesh: THREE.Group, dt: number): void {
-  if (!isRiggedBoli(mesh) || dt <= 0) {
+  const mixer = mesh.userData.mixer as THREE.AnimationMixer | undefined;
+  if (!mixer || dt < 0) {
     return;
   }
-  (mesh.userData.mixer as THREE.AnimationMixer | undefined)?.update(dt);
+  mixer.update(dt > 0 ? dt : 0);
 }
 
 function ensurePhase(mesh: THREE.Group, id?: string): void {
@@ -302,19 +332,20 @@ function fadeTo(mesh: THREE.Group, clipName: string, loco: BoliLocomotion): void
   const fade = clipName === CLIP_DOWNED ? DOWNED_FADE : FADE;
   next.enabled = true;
   next.paused = false;
+  next.play();
   if (clipName === CLIP_DOWNED) {
     next.reset();
+    next.weight = 1;
   } else if (locomotion) {
     const duration = next.getClip().duration;
     next.time = (loco.walkTime * 0.37 + Number(mesh.userData.phase ?? 0) * duration) % duration;
   } else {
     next.timeScale = Number(mesh.userData.idleScale ?? 1);
   }
-  next.play();
   if (prev && prev !== next) {
-    next.crossFadeFrom(prev, fade, false);
+    prev.crossFadeTo(next, fade, false);
   } else {
-    next.fadeIn(fade);
+    next.weight = 1;
   }
   mesh.userData.currentClip = clipName;
 }

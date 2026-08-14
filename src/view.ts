@@ -309,18 +309,16 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     shotFx.consume(state);
     shotFx.tick();
     const now = performance.now();
-    const animDt = Math.min(0.05, (now - lastAnimAt) / 1000);
+    const animDt = opts.paused ? 0 : Math.min(0.05, (now - lastAnimAt) / 1000);
     lastAnimAt = now;
-    if (!opts.paused) {
-      for (const mesh of boliMeshes.values()) {
-        tickBoliAnimation(mesh, animDt);
-      }
-      if (hunterMesh) {
-        tickBoliAnimation(hunterMesh, animDt);
-      }
-      for (const mesh of extraMeshes) {
-        tickBoliAnimation(mesh, animDt);
-      }
+    for (const mesh of boliMeshes.values()) {
+      tickBoliAnimation(mesh, animDt);
+    }
+    if (hunterMesh) {
+      tickBoliAnimation(hunterMesh, animDt);
+    }
+    for (const mesh of extraMeshes) {
+      tickBoliAnimation(mesh, animDt);
     }
     renderer.render(scene, fpsCamera);
   }
