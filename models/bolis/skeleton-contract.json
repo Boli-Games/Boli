@@ -1,0 +1,132 @@
+{
+  "id": "boli-humanoid-v1",
+  "version": 1,
+  "purpose": "Shared skeleton contract for Boli skins 1–3",
+  "space": {
+    "up": "+Y",
+    "forward": "+Z",
+    "pivot": "feet at origin",
+    "units": "glTF meters"
+  },
+  "nativeHeight": 1.8973909616470337,
+  "recommendedGameScale": 8.43263213719073,
+  "bindPose": "identity rotations, translation-only rest offsets",
+  "boneCount": 21,
+  "hierarchy": {
+    "Root": null,
+    "Hips": "Root",
+    "Spine": "Hips",
+    "Chest": "Spine",
+    "Neck": "Chest",
+    "Head": "Neck",
+    "LeftShoulder": "Chest",
+    "LeftUpperArm": "LeftShoulder",
+    "LeftLowerArm": "LeftUpperArm",
+    "LeftHand": "LeftLowerArm",
+    "RightShoulder": "Chest",
+    "RightUpperArm": "RightShoulder",
+    "RightLowerArm": "RightUpperArm",
+    "RightHand": "RightLowerArm",
+    "WeaponSocket": "RightHand",
+    "LeftUpperLeg": "Hips",
+    "LeftLowerLeg": "LeftUpperLeg",
+    "LeftFoot": "LeftLowerLeg",
+    "RightUpperLeg": "Hips",
+    "RightLowerLeg": "RightUpperLeg",
+    "RightFoot": "RightLowerLeg"
+  },
+  "boneOrder": [
+    "Root",
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "LeftShoulder",
+    "LeftUpperArm",
+    "LeftLowerArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightUpperArm",
+    "RightLowerArm",
+    "RightHand",
+    "WeaponSocket",
+    "LeftUpperLeg",
+    "LeftLowerLeg",
+    "LeftFoot",
+    "RightUpperLeg",
+    "RightLowerLeg",
+    "RightFoot"
+  ],
+  "requiredBones": [
+    "Root",
+    "Hips",
+    "Spine",
+    "Chest",
+    "Neck",
+    "Head",
+    "LeftShoulder",
+    "LeftUpperArm",
+    "LeftLowerArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightUpperArm",
+    "RightLowerArm",
+    "RightHand",
+    "LeftUpperLeg",
+    "LeftLowerLeg",
+    "LeftFoot",
+    "RightUpperLeg",
+    "RightLowerLeg",
+    "RightFoot"
+  ],
+  "sockets": {
+    "WeaponSocket": {
+      "parent": "RightHand",
+      "purpose": "Mount point for the shotgun. Do not skin mesh vertices to this bone."
+    }
+  },
+  "meshRules": {
+    "maxTriangles": 8000,
+    "recommended": "single skinned mesh, humanoid proportions close to Skin 1",
+    "mustHave": [
+      "feet on Y=0",
+      "facing +Z",
+      "similar height ~1.8–2.0 before scale"
+    ]
+  },
+  "animationRules": {
+    "shareClipsByBoneName": true,
+    "rootMotionBone": "Root",
+    "crouch": "translate Hips down + bend legs",
+    "downed": "rotate Root ~90° on X (matches current makePerson downed)"
+  },
+  "skin1": {
+    "source": "boly_normal.glb",
+    "triangles": 5720,
+    "vertices": 2878,
+    "influenceCounts": {
+      "Root": 0,
+      "Hips": 1216,
+      "Spine": 656,
+      "Chest": 759,
+      "Neck": 844,
+      "Head": 556,
+      "LeftShoulder": 215,
+      "LeftUpperArm": 222,
+      "LeftLowerArm": 228,
+      "LeftHand": 164,
+      "RightShoulder": 215,
+      "RightUpperArm": 223,
+      "RightLowerArm": 204,
+      "RightHand": 145,
+      "WeaponSocket": 0,
+      "LeftUpperLeg": 113,
+      "LeftLowerLeg": 284,
+      "LeftFoot": 233,
+      "RightUpperLeg": 105,
+      "RightLowerLeg": 246,
+      "RightFoot": 213
+    }
+  }
+}
