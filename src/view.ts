@@ -41,14 +41,21 @@ const HUNTER_COLOR = 0x3c342c;
 const HUNTER_SHADE = 0x5a4c40;
 const wayNdc = new THREE.Vector3();
 
+const HEART_SLOTS = 5;
+const AMMO_SLOTS = 6;
+
 type Hud = {
   time: HTMLElement;
   mode: HTMLElement;
   hint: HTMLElement;
   mission: HTMLElement;
   hpWrap: HTMLElement;
-  hpFill: HTMLElement;
+  hpHearts: HTMLElement[];
+  ammoWrap: HTMLElement;
+  ammoShots: HTMLElement[];
+  ammoCount: HTMLElement;
   banner: HTMLElement;
+  bannerText: HTMLElement;
   crosshair: HTMLElement;
   lock: HTMLElement;
   lockTitle: HTMLElement;
@@ -60,6 +67,46 @@ type Hud = {
   wayNeedle: HTMLElement;
   wayMeta: HTMLElement;
 };
+
+type HudCache = {
+  time: string;
+  hearts: number;
+  critical: boolean;
+  ammoShown: boolean;
+  shots: number;
+  ammo: number;
+  mode: string;
+  modeOn: boolean;
+  modeShown: boolean;
+  mission: string;
+  missionShown: boolean;
+  banner: string;
+  hint: string;
+  lockTitle: string;
+  playing: boolean;
+  endTitle: string;
+};
+
+const hudCache: HudCache = {
+  time: "",
+  hearts: -1,
+  critical: false,
+  ammoShown: false,
+  shots: -1,
+  ammo: -1,
+  mode: "",
+  modeOn: false,
+  modeShown: false,
+  mission: "",
+  missionShown: false,
+  banner: "",
+  hint: "",
+  lockTitle: "",
+  playing: true,
+  endTitle: "",
+};
+
+let bannerHideAt = 0;
 
 export type ViewOpts = {
   role: ControlRole;
@@ -208,6 +255,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     });
     trackedHp = -1;
     hurtUntil = 0;
+    resetHudCache();
   }
 
   function resize(): void {
@@ -1218,14 +1266,34 @@ function isHolding(entity: Entity): boolean {
 function bindHud(): Hud {
   const end = must("#end");
   const lock = must("#lock");
+  const hpWrap = must("#hpwrap");
+  const ammoWrap = must("#ammoWrap");
+  const hpHearts = Array.from(must("#hpHearts").querySelectorAll<HTMLElement>(".hud-heart"));
+  const ammoShots = Array.from(must("#ammoShots").querySelectorAll<HTMLElement>(".hud-shot"));
+  const clearAnim = (el: HTMLElement, classes: string[]): void => {
+    el.addEventListener("animationend", (ev) => {
+      if (ev.target === el) {
+        el.classList.remove(...classes);
+      }
+    });
+  };
+  clearAnim(hpWrap, ["is-hit", "is-heal"]);
+  clearAnim(ammoWrap, ["is-fire", "is-gain"]);
+  for (const slot of [...hpHearts, ...ammoShots]) {
+    slot.addEventListener("animationend", () => slot.classList.remove("is-pop"));
+  }
   return {
     time: must("#time"),
     mode: must("#mode"),
     hint: must("#hint"),
     mission: must("#mission"),
-    hpWrap: must("#hpwrap"),
-    hpFill: must("#hpfill"),
+    hpWrap,
+    hpHearts,
+    ammoWrap,
+    ammoShots,
+    ammoCount: must("#ammoCount"),
     banner: must("#banner"),
+    bannerText: must("#bannerText"),
     crosshair: must("#crosshair"),
     lock,
     lockTitle: lock.querySelector("h1") ?? lock,
@@ -1247,11 +1315,131 @@ function must(selector: string): HTMLElement {
   return el;
 }
 
-function setHpBar(hud: Hud, ratio: number): void {
+function resetHudCache(): void {
+  hudCache.time = "";
+  hudCache.hearts = -1;
+  hudCache.critical = false;
+  hudCache.ammoShown = false;
+  hudCache.shots = -1;
+  hudCache.ammo = -1;
+  hudCache.mode = "";
+  hudCache.modeOn = false;
+  hudCache.modeShown = false;
+  hudCache.mission = "";
+  hudCache.missionShown = false;
+  hudCache.banner = "";
+  hudCache.hint = "";
+  hudCache.lockTitle = "";
+  hudCache.playing = true;
+  hudCache.endTitle = "";
+  bannerHideAt = 0;
+}
+
+function slotsFromRatio(ratio: number, slots: number): number {
+  if (ratio <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(slots, Math.round(ratio * slots)));
+}
+
+function ammoSlots(ammo: number): number {
+  if (ammo <= 0) {
+    return 0;
+  }
+  return Math.min(AMMO_SLOTS, Math.ceil(ammo / (ROUND.maxShells / AMMO_SLOTS)));
+}
+
+function presentBanner(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function bumpHudAnim(el: HTMLElement, className: string): void {
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+}
+
+function setSlots(els: HTMLElement[], filled: number, popIndex: number): void {
+  for (let i = 0; i < els.length; i++) {
+    const on = i < filled;
+    const el = els[i];
+    const wasOn = el.classList.contains("is-on");
+    if (wasOn !== on) {
+      el.classList.toggle("is-on", on);
+      el.classList.toggle("is-off", !on);
+      if (i === popIndex) {
+        bumpHudAnim(el, "is-pop");
+      }
+    }
+  }
+}
+
+function setHearts(hud: Hud, ratio: number): void {
   hud.hpWrap.classList.remove("hidden");
-  hud.hpFill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
-  hud.hpFill.classList.toggle("mid", ratio <= 0.5 && ratio > 0.25);
-  hud.hpFill.classList.toggle("low", ratio <= 0.25);
+  const hearts = slotsFromRatio(ratio, HEART_SLOTS);
+  const critical = ratio > 0 && ratio <= 0.25;
+  if (hudCache.hearts !== hearts) {
+    const pop = hudCache.hearts < 0 ? -1 : hearts < hudCache.hearts ? hearts : hearts - 1;
+    setSlots(hud.hpHearts, hearts, pop);
+    hudCache.hearts = hearts;
+  }
+  if (hudCache.critical !== critical) {
+    hud.hpWrap.classList.toggle("is-critical", critical);
+    hudCache.critical = critical;
+  }
+}
+
+function setAmmo(hud: Hud, ammo: number): void {
+  const shots = ammoSlots(ammo);
+  if (hudCache.shots !== shots) {
+    const pop = hudCache.shots < 0 ? -1 : shots < hudCache.shots ? shots : shots - 1;
+    setSlots(hud.ammoShots, shots, pop);
+    if (hudCache.shots >= 0 && shots < hudCache.shots) {
+      bumpHudAnim(hud.ammoWrap, "is-fire");
+    } else if (hudCache.shots >= 0 && shots > hudCache.shots) {
+      bumpHudAnim(hud.ammoWrap, "is-gain");
+    }
+    hudCache.shots = shots;
+  }
+  if (hudCache.ammo !== ammo) {
+    hud.ammoCount.textContent = String(ammo);
+    hud.ammoWrap.classList.toggle("is-empty", ammo <= 0);
+    hudCache.ammo = ammo;
+  }
+}
+
+function setBanner(hud: Hud, raw: string | undefined): void {
+  const now = performance.now();
+  if (raw) {
+    const text = presentBanner(raw);
+    bannerHideAt = 0;
+    if (hudCache.banner !== text) {
+      hud.bannerText.textContent = text;
+      hud.banner.classList.remove("hidden", "is-out");
+      bumpHudAnim(hud.banner, "is-in");
+      hudCache.banner = text;
+    }
+    return;
+  }
+  if (hudCache.banner === "" && hud.banner.classList.contains("hidden")) {
+    return;
+  }
+  if (!bannerHideAt) {
+    bannerHideAt = now + 260;
+    hud.banner.classList.remove("is-in");
+    hud.banner.classList.add("is-out");
+    return;
+  }
+  if (now >= bannerHideAt) {
+    hud.banner.classList.add("hidden");
+    hud.banner.classList.remove("is-out", "is-in");
+    hudCache.banner = "";
+    bannerHideAt = 0;
+  }
 }
 
 function updateHud(
@@ -1261,41 +1449,86 @@ function updateHud(
   activeHunter: Hunter,
   localEntity: Entity | undefined,
 ): void {
-  hud.time.textContent = formatTime(state.timeLeft);
-  const mission = missionSummary(state);
-  if (state.behaviorCheck) {
-    hud.banner.classList.remove("hidden");
-    hud.banner.textContent = state.behaviorCheck.banner;
-  } else {
-    hud.banner.classList.add("hidden");
+  const time = formatTime(state.timeLeft);
+  if (hudCache.time !== time) {
+    hud.time.textContent = time;
+    hudCache.time = time;
   }
+  const mission = missionSummary(state);
+  setBanner(hud, state.behaviorCheck?.banner);
   const touchUi = Boolean(opts.touchUi);
   if (opts.role === "HUNTER") {
-    hud.mode.textContent = `${state.accusationsLeft} cartuchos`;
-    hud.mode.classList.toggle("on", state.accusationsLeft > 0);
-    setHpBar(hud, activeHunter.hp / ROUND.hunterHp);
-    hud.hint.textContent = touchUi
+    if (hudCache.ammoShown !== true) {
+      hud.ammoWrap.classList.remove("hidden");
+      hud.mode.classList.add("hidden");
+      hudCache.ammoShown = true;
+      hudCache.modeShown = false;
+    }
+    setAmmo(hud, state.accusationsLeft);
+    setHearts(hud, activeHunter.hp / ROUND.hunterHp);
+    const hint = touchUi
       ? "Joystick · arrastrá para mirar"
       : "Shift: correr · C / Ctrl: agachar · Esc: opciones";
-    hud.mission.classList.add("hidden");
-    hud.lockTitle.textContent = "Sos el cazador";
-    hud.lockBody.textContent = touchUi
-      ? "Joystick a la izquierda, mirá a la derecha, dispará con el botón. Pocos cartuchos."
-      : "Pocos cartuchos. Pegarle a un boli te cuesta sangre. Observá quién se mueve distinto.";
+    if (hudCache.hint !== hint) {
+      hud.hint.textContent = hint;
+      hudCache.hint = hint;
+    }
+    if (hudCache.missionShown) {
+      hud.mission.classList.add("hidden");
+      hudCache.missionShown = false;
+    }
+    const lockTitle = "Sos el cazador";
+    if (hudCache.lockTitle !== lockTitle) {
+      hud.lockTitle.textContent = lockTitle;
+      hud.lockBody.textContent = touchUi
+        ? "Joystick a la izquierda, mirá a la derecha, dispará con el botón. Pocos cartuchos."
+        : "Pocos cartuchos. Pegarle a un boli te cuesta sangre. Observá quién se mueve distinto.";
+      hudCache.lockTitle = lockTitle;
+    }
   } else {
-    hud.mode.textContent = opts.boliMode ? "Modo boli ON" : touchUi ? "Modo boli" : "Q: modo boli";
-    hud.mode.classList.toggle("on", opts.boliMode);
+    if (hudCache.ammoShown) {
+      hud.ammoWrap.classList.add("hidden");
+      hudCache.ammoShown = false;
+    }
+    const mode = opts.boliMode ? "Modo boli ON" : touchUi ? "Modo boli" : "Q: modo boli";
+    if (!hudCache.modeShown) {
+      hud.mode.classList.remove("hidden");
+      hudCache.modeShown = true;
+    }
+    if (hudCache.mode !== mode) {
+      hud.mode.textContent = mode;
+      hudCache.mode = mode;
+    }
+    if (hudCache.modeOn !== opts.boliMode) {
+      hud.mode.classList.toggle("on", opts.boliMode);
+      hudCache.modeOn = opts.boliMode;
+    }
     const hp = localEntity && !localEntity.downed ? localEntity.hp : 0;
-    setHpBar(hud, hp / ROUND.hitsToDown);
-    hud.hint.textContent = touchUi
+    setHearts(hud, hp / ROUND.hitsToDown);
+    const hint = touchUi
       ? "Joystick · arrastrá para mirar"
       : "Shift: correr · C / Ctrl: agachar · Q: boli · Esc: opciones";
-    hud.mission.classList.remove("hidden");
-    hud.mission.textContent = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
-    hud.lockTitle.textContent = "Hacete el boli";
-    hud.lockBody.textContent = touchUi
-      ? "Mezclate con la manada. Usá el joystick y el botón Boli para copiar el ritmo."
-      : "Mezclate con la manada y cumplí la misión, o sobreviví hasta que se acabe el tiempo. Quedarte solo te delata.";
+    if (hudCache.hint !== hint) {
+      hud.hint.textContent = hint;
+      hudCache.hint = hint;
+    }
+    const missionText = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
+    if (!hudCache.missionShown) {
+      hud.mission.classList.remove("hidden");
+      hudCache.missionShown = true;
+    }
+    if (hudCache.mission !== missionText) {
+      hud.mission.textContent = missionText;
+      hudCache.mission = missionText;
+    }
+    const lockTitle = "Hacete el boli";
+    if (hudCache.lockTitle !== lockTitle) {
+      hud.lockTitle.textContent = lockTitle;
+      hud.lockBody.textContent = touchUi
+        ? "Mezclate con la manada. Usá el joystick y el botón Boli para copiar el ritmo."
+        : "Mezclate con la manada y cumplí la misión, o sobreviví hasta que se acabe el tiempo. Quedarte solo te delata.";
+      hudCache.lockTitle = lockTitle;
+    }
   }
   hud.crosshair.classList.toggle("hidden", !opts.pointerLocked || Boolean(opts.paused));
   hud.lock.classList.toggle(
@@ -1304,15 +1537,27 @@ function updateHud(
   );
   const endHint = hud.end.querySelector("p");
   if (endHint) {
-    endHint.textContent = touchUi ? "Pausa para volver al menú" : "Esc para volver al menú";
+    const endText = touchUi ? "Pausa para volver al menú" : "Esc para volver al menú";
+    if (endHint.textContent !== endText) {
+      endHint.textContent = endText;
+    }
   }
 
-  if (state.phase === "PLAYING") {
-    hud.end.classList.add("hidden");
+  const playing = state.phase === "PLAYING";
+  if (playing) {
+    if (!hudCache.playing) {
+      hud.end.classList.add("hidden");
+      hudCache.playing = true;
+    }
     return;
   }
-  hud.end.classList.remove("hidden");
-  hud.endTitle.textContent = endTitle(state);
+  const title = endTitle(state);
+  if (hudCache.playing || hudCache.endTitle !== title) {
+    hud.end.classList.remove("hidden");
+    hud.endTitle.textContent = title;
+    hudCache.playing = false;
+    hudCache.endTitle = title;
+  }
 }
 
 function updateWaypoint(camera: THREE.PerspectiveCamera, hud: Hud, state: GameState, opts: ViewOpts): void {

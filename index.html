@@ -40,77 +40,225 @@
       #hud {
         position: fixed;
         inset: 0;
+        z-index: 3;
         pointer-events: none;
+        font-family: "Fredoka", "Segoe UI", sans-serif;
       }
-      #top {
+      #hudTop {
         display: flex;
-        gap: 18px;
-        align-items: baseline;
-        padding: 14px 18px;
-        background: linear-gradient(to bottom, rgba(10, 12, 16, 0.55), transparent);
-        font-size: 14px;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px 0;
+      }
+      #hudTopLeft {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        min-width: 0;
       }
       #time {
-        font-size: 18px;
+        font-size: clamp(22px, 3.2vw, 30px);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #fff;
+        line-height: 1;
+        text-shadow:
+          2px 3px 0 #111,
+          -1px -1px 0 #111,
+          1px -1px 0 #111,
+          -1px 1px 0 #111,
+          1px 1px 0 #111;
+      }
+      #mission {
+        max-width: min(340px, 42vw);
+        padding: 5px 12px;
+        background: #fff8e8;
+        color: #111;
+        border: 3px solid #111;
+        border-radius: 16px 18px 14px 16px;
+        box-shadow: 3px 4px 0 #111;
+        font-size: clamp(12px, 1.5vw, 15px);
+        font-weight: 600;
+        line-height: 1.25;
+      }
+      #hint {
+        max-width: min(280px, 38vw);
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 12px;
+        font-weight: 600;
+        text-align: right;
+        line-height: 1.35;
+        text-shadow: 0 1px 2px #111;
+      }
+      #hpwrap,
+      #ammoWrap {
+        position: absolute;
+        line-height: 0;
+        transform-origin: bottom left;
+      }
+      #hpwrap {
+        left: max(10px, 1.4vw);
+        bottom: max(36px, 4.6vh);
+        width: min(318px, 42vw);
+        z-index: 2;
+      }
+      #ammoWrap {
+        right: max(10px, 1.4vw);
+        bottom: max(10px, 1.6vh);
+        width: min(268px, 36vw);
+        transform-origin: bottom right;
+        z-index: 2;
+      }
+      .hud-vida-art,
+      .hud-ammo-art,
+      .hud-com-art {
+        display: block;
+        width: 100%;
+        height: auto;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.28));
+      }
+      .hud-hearts {
+        position: absolute;
+        left: 31%;
+        top: 40%;
+        width: 56%;
+        height: 38%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .hud-heart {
+        width: 17.4%;
+        height: 100%;
+      }
+      .hud-heart svg,
+      .hud-shot svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+      .hud-heart .fill {
+        fill: #e2182c;
+      }
+      .hud-heart.is-off .fill {
+        fill: #8e959e;
+      }
+      .hud-heart.is-off ellipse {
+        opacity: 0.28;
+      }
+      .hud-shots {
+        position: absolute;
+        left: 34.2%;
+        top: 49.5%;
+        width: 49%;
+        height: 29%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .hud-shot {
+        width: 14%;
+        height: 100%;
+      }
+      .hud-shot .fill {
+        fill: #f0c63a;
+      }
+      .hud-shot .tip {
+        fill: #f08a28;
+      }
+      .hud-shot.is-off .fill,
+      .hud-shot.is-off .tip {
+        fill: #3f5168;
+      }
+      .hud-shot.is-off rect {
+        opacity: 0.12;
+      }
+      .hud-ammo-meta {
+        position: absolute;
+        right: 6%;
+        bottom: 4%;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 3px 9px 4px;
+        background: #fff;
+        color: #111;
+        border: 3px solid #111;
+        border-radius: 14px;
+        box-shadow: 2px 3px 0 #111;
+        line-height: 1;
+      }
+      #ammoCount {
+        font-size: clamp(15px, 2vw, 20px);
+        font-weight: 700;
+      }
+      .hud-ammo-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+      #ammoWrap.is-empty .hud-ammo-meta {
+        background: #f3d0c8;
+      }
+      #mode {
+        position: absolute;
+        right: max(12px, 1.6vw);
+        bottom: max(14px, 2vh);
+        padding: 8px 14px;
+        background: #fff;
+        color: #111;
+        border: 4px solid #111;
+        border-radius: 22px;
+        box-shadow: 4px 5px 0 #111;
+        font-size: clamp(13px, 1.7vw, 16px);
         font-weight: 700;
       }
       #mode.on {
-        color: #9ee7b0;
-      }
-      #mission {
-        color: #e6d39a;
-      }
-      #hpwrap {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      #hpwrap.hidden {
-        display: none;
-      }
-      #hpbar {
-        width: 110px;
-        height: 8px;
-        background: rgba(10, 12, 16, 0.55);
-        border-radius: 4px;
-        overflow: hidden;
-      }
-      #hpfill {
-        display: block;
-        height: 100%;
-        width: 100%;
-        background: #7dcea0;
-      }
-      #hpfill.mid {
-        background: #e6c35c;
-      }
-      #hpfill.low {
-        background: #c45c4a;
+        background: #ffe14a;
       }
       #banner {
         position: absolute;
         left: 50%;
-        top: 52px;
+        top: 12px;
+        width: min(400px, 58vw);
         transform: translateX(-50%);
-        background: rgba(10, 12, 16, 0.62);
-        padding: 8px 16px;
-        border-radius: 8px;
-        font-size: 15px;
-        letter-spacing: 0.02em;
+        transform-origin: 50% 0;
+        z-index: 2;
+        overflow: visible;
       }
-      #hint {
-        margin-left: auto;
-        color: #9aa3ad;
-        font-size: 13px;
+      #bannerText {
+        position: absolute;
+        left: 23%;
+        right: 11%;
+        top: 53%;
+        bottom: 9%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        color: #111;
+        text-align: center;
+        font-size: clamp(14px, 2vw, 20px);
+        font-weight: 700;
+        line-height: 1.2;
+        text-wrap: balance;
       }
       #crosshair {
         position: absolute;
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        color: rgba(243, 234, 210, 0.55);
+        color: rgba(255, 255, 255, 0.62);
         font-size: 18px;
         line-height: 1;
+        text-shadow: 0 1px 2px #111;
       }
       #lock,
       #end {
@@ -118,22 +266,184 @@
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
+        width: min(420px, calc(100% - 32px));
         text-align: center;
-        background: rgba(10, 12, 16, 0.72);
-        padding: 22px 28px;
-        border-radius: 10px;
-        max-width: 420px;
+        background: #fff;
+        color: #111;
+        padding: 22px 26px;
+        border: 5px solid #111;
+        border-radius: 28px 34px 26px 32px;
+        box-shadow: 6px 8px 0 #111;
       }
       #lock h1,
       #end h1 {
-        font-size: 28px;
+        font-size: clamp(24px, 4vw, 32px);
+        font-weight: 700;
+        letter-spacing: 0.03em;
         margin-bottom: 8px;
+        color: #111;
       }
       #lock p,
       #end p {
-        color: #c5c0b2;
+        color: #333;
         font-size: 15px;
         line-height: 1.4;
+        font-weight: 600;
+      }
+      #hpwrap.is-hit {
+        animation: hud-hit 280ms ease-out;
+      }
+      #hpwrap.is-heal {
+        animation: hud-heal 280ms ease-out;
+      }
+      #hpwrap.is-critical:not(.is-hit):not(.is-heal) {
+        animation: hud-critical 1.15s ease-in-out infinite;
+      }
+      #ammoWrap.is-fire {
+        animation: hud-ammo-fire 180ms ease-out;
+      }
+      #ammoWrap.is-gain {
+        animation: hud-heal 280ms ease-out;
+      }
+      .hud-heart.is-pop,
+      .hud-shot.is-pop {
+        animation: hud-slot-pop 200ms ease-out;
+      }
+      #banner.is-in {
+        animation: hud-com-in 320ms ease-out both;
+      }
+      #banner.is-out {
+        animation: hud-com-out 260ms ease-in both;
+      }
+      @keyframes hud-hit {
+        0%,
+        100% {
+          transform: translate(0, 0);
+        }
+        25% {
+          transform: translate(-3px, 1px);
+        }
+        50% {
+          transform: translate(3px, -1px);
+        }
+        75% {
+          transform: translate(-2px, 0);
+        }
+      }
+      @keyframes hud-heal {
+        0% {
+          filter: brightness(1.12);
+        }
+        100% {
+          filter: none;
+        }
+      }
+      @keyframes hud-critical {
+        0%,
+        100% {
+          filter: none;
+        }
+        50% {
+          filter: brightness(1.08);
+        }
+      }
+      @keyframes hud-ammo-fire {
+        0% {
+          transform: translate(1px, 0);
+        }
+        100% {
+          transform: none;
+        }
+      }
+      @keyframes hud-slot-pop {
+        0% {
+          transform: scale(1.18);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+      @keyframes hud-com-in {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-12px) scale(0.94);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0) scale(1);
+        }
+      }
+      @keyframes hud-com-out {
+        from {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-8px) scale(0.98);
+        }
+      }
+      @media (max-width: 1100px) {
+        #hpwrap {
+          width: min(280px, 44vw);
+        }
+        #ammoWrap {
+          width: min(236px, 38vw);
+        }
+      }
+      @media (max-width: 820px) {
+        #banner {
+          top: 44px;
+          width: min(320px, 72vw);
+        }
+        #mission {
+          max-width: min(240px, 52vw);
+        }
+        #hint {
+          max-width: 34vw;
+          font-size: 11px;
+        }
+        #hpwrap {
+          width: min(240px, 48vw);
+        }
+        #ammoWrap {
+          width: min(200px, 42vw);
+        }
+      }
+      @media (max-height: 700px) {
+        #banner {
+          top: 8px;
+          width: min(340px, 54vw);
+        }
+        #hpwrap {
+          width: min(270px, 42vw);
+        }
+        #ammoWrap {
+          width: min(230px, 36vw);
+        }
+      }
+      @media (max-height: 500px) {
+        #banner {
+          top: 4px;
+          width: min(260px, 50vw);
+        }
+        #hint {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #banner.is-in,
+        #banner.is-out,
+        #hpwrap.is-hit,
+        #hpwrap.is-heal,
+        #hpwrap.is-critical,
+        #ammoWrap.is-fire,
+        #ammoWrap.is-gain,
+        .hud-heart.is-pop,
+        .hud-shot.is-pop,
+        #menu::before {
+          animation: none !important;
+        }
       }
       #hurt {
         position: fixed;
@@ -925,18 +1235,28 @@
         right: max(12px, env(safe-area-inset-right));
         bottom: max(10px, env(safe-area-inset-bottom));
       }
-      html.input-touch #hud #top {
+      html.input-touch #hudTop {
         padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px
           max(14px, env(safe-area-inset-left));
         gap: 10px;
-        flex-wrap: wrap;
-        font-size: 13px;
       }
       html.input-touch #banner {
-        top: max(52px, calc(env(safe-area-inset-top) + 40px));
-        max-width: min(420px, calc(100% - 120px));
-        font-size: 13px;
-        padding: 6px 12px;
+        top: max(12px, calc(env(safe-area-inset-top) + 8px));
+        width: min(320px, calc(100% - 120px));
+      }
+      html.input-touch #hpwrap {
+        left: max(10px, env(safe-area-inset-left));
+        bottom: calc(168px + env(safe-area-inset-bottom, 0px));
+        width: min(240px, 46vw);
+      }
+      html.input-touch #ammoWrap {
+        right: max(10px, env(safe-area-inset-right));
+        bottom: calc(220px + env(safe-area-inset-bottom, 0px));
+        width: min(200px, 40vw);
+      }
+      html.input-touch #mode {
+        right: max(12px, env(safe-area-inset-right));
+        bottom: calc(220px + env(safe-area-inset-bottom, 0px));
       }
       html.input-touch #hint {
         display: none;
@@ -1279,14 +1599,67 @@
       </div>
     </div>
     <div id="hud" class="hidden">
-      <div id="top">
-        <span id="time">10:00</span>
-        <span id="mode">Q: modo boli</span>
-        <span id="hpwrap" class="hidden"><span id="hpbar"><span id="hpfill"></span></span></span>
-        <span id="mission">Misión 0/3</span>
+      <div id="hudTop">
+        <div id="hudTopLeft">
+          <span id="time">10:00</span>
+          <span id="mission">Misión 0/3</span>
+        </div>
         <span id="hint">Esc: opciones</span>
       </div>
-      <div id="banner" class="hidden"></div>
+      <div id="banner" class="hidden" aria-live="polite">
+        <img
+          class="hud-com-art"
+          src="/hud/comunicado.png"
+          alt=""
+          width="1001"
+          height="546"
+          decoding="async"
+          draggable="false"
+        />
+        <p id="bannerText"></p>
+      </div>
+      <div id="hpwrap" class="hidden">
+        <img
+          class="hud-vida-art"
+          src="/hud/vida.png"
+          alt=""
+          width="989"
+          height="271"
+          decoding="async"
+          draggable="false"
+        />
+        <div id="hpHearts" class="hud-hearts" aria-hidden="true">
+          <span class="hud-heart is-on"><svg viewBox="0 0 34 30"><path class="fill" d="M17 27C17 27 3.5 17.2 3.5 10.2 3.5 5.8 7 3 10.8 3c2.5 0 4.6 1.3 6.2 3.5C18.6 4.3 20.7 3 23.2 3 27 3 30.5 5.8 30.5 10.2 30.5 17.2 17 27 17 27z" stroke="#111" stroke-width="2.3" stroke-linejoin="round"/><ellipse cx="12.2" cy="9.2" rx="3.4" ry="2.2" fill="#fff"/></svg></span>
+          <span class="hud-heart is-on"><svg viewBox="0 0 34 30"><path class="fill" d="M17 27C17 27 3.5 17.2 3.5 10.2 3.5 5.8 7 3 10.8 3c2.5 0 4.6 1.3 6.2 3.5C18.6 4.3 20.7 3 23.2 3 27 3 30.5 5.8 30.5 10.2 30.5 17.2 17 27 17 27z" stroke="#111" stroke-width="2.3" stroke-linejoin="round"/><ellipse cx="12.2" cy="9.2" rx="3.4" ry="2.2" fill="#fff"/></svg></span>
+          <span class="hud-heart is-on"><svg viewBox="0 0 34 30"><path class="fill" d="M17 27C17 27 3.5 17.2 3.5 10.2 3.5 5.8 7 3 10.8 3c2.5 0 4.6 1.3 6.2 3.5C18.6 4.3 20.7 3 23.2 3 27 3 30.5 5.8 30.5 10.2 30.5 17.2 17 27 17 27z" stroke="#111" stroke-width="2.3" stroke-linejoin="round"/><ellipse cx="12.2" cy="9.2" rx="3.4" ry="2.2" fill="#fff"/></svg></span>
+          <span class="hud-heart is-on"><svg viewBox="0 0 34 30"><path class="fill" d="M17 27C17 27 3.5 17.2 3.5 10.2 3.5 5.8 7 3 10.8 3c2.5 0 4.6 1.3 6.2 3.5C18.6 4.3 20.7 3 23.2 3 27 3 30.5 5.8 30.5 10.2 30.5 17.2 17 27 17 27z" stroke="#111" stroke-width="2.3" stroke-linejoin="round"/><ellipse cx="12.2" cy="9.2" rx="3.4" ry="2.2" fill="#fff"/></svg></span>
+          <span class="hud-heart is-on"><svg viewBox="0 0 34 30"><path class="fill" d="M17 27C17 27 3.5 17.2 3.5 10.2 3.5 5.8 7 3 10.8 3c2.5 0 4.6 1.3 6.2 3.5C18.6 4.3 20.7 3 23.2 3 27 3 30.5 5.8 30.5 10.2 30.5 17.2 17 27 17 27z" stroke="#111" stroke-width="2.3" stroke-linejoin="round"/><ellipse cx="12.2" cy="9.2" rx="3.4" ry="2.2" fill="#fff"/></svg></span>
+        </div>
+      </div>
+      <div id="ammoWrap" class="hidden">
+        <img
+          class="hud-ammo-art"
+          src="/hud/municion.png"
+          alt=""
+          width="983"
+          height="437"
+          decoding="async"
+          draggable="false"
+        />
+        <div id="ammoShots" class="hud-shots" aria-hidden="true">
+          <span class="hud-shot is-on"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+          <span class="hud-shot is-on"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+          <span class="hud-shot is-on"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+          <span class="hud-shot is-on"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+          <span class="hud-shot is-off"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+          <span class="hud-shot is-off"><svg viewBox="0 0 20 34"><path class="fill" d="M6 12h8v16.5c0 2.4-1.8 4-4 4s-4-1.6-4-4z" stroke="#111" stroke-width="2"/><path class="tip" d="M6 13 L10 3.5 L14 13z" stroke="#111" stroke-width="2" stroke-linejoin="round"/><rect x="7.4" y="15" width="3.2" height="9" rx="1.2" fill="#fff" opacity=".75"/></svg></span>
+        </div>
+        <div class="hud-ammo-meta">
+          <span id="ammoCount">8</span>
+          <span class="hud-ammo-label">cartuchos</span>
+        </div>
+      </div>
+      <span id="mode" class="hidden">Q: modo boli</span>
       <div id="crosshair">+</div>
       <div id="lock">
         <h1>Hacete el boli</h1>

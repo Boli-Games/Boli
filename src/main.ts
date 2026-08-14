@@ -4,6 +4,7 @@ import {
   onProfileChange,
   setProfile,
 } from "./auth";
+import { playMusic, preloadGameMusic, stopAllGameMusic, stopMusic } from "./audio";
 import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
 import {
@@ -329,6 +330,7 @@ function enterPlay(): void {
   setPaused(false);
   input.setEnabled(true);
   syncFullscreenButton();
+  preloadGameMusic();
 }
 
 function backToMenu(error = ""): void {
@@ -344,6 +346,7 @@ function backToMenu(error = ""): void {
   hud.classList.add("hidden");
   hurt.style.opacity = "0";
   way.classList.add("hidden");
+  stopAllGameMusic({ immediate: true });
   history.replaceState(null, "", window.location.pathname);
   menu.showHome(error);
 }
@@ -551,6 +554,8 @@ function frame(now: number): void {
     document.exitPointerLock();
   }
 
+  syncMatchMusic(state);
+
   view.render(state, {
     role,
     yaw: activeYaw(),
@@ -641,6 +646,18 @@ function must(selector: string): HTMLElement {
     throw new Error(`No se encontró ${selector}`);
   }
   return el;
+}
+
+function syncMatchMusic(game: GameState): void {
+  if (game.phase !== "PLAYING") {
+    stopMusic("behavior_check");
+    return;
+  }
+  if (game.behaviorCheck) {
+    playMusic("behavior_check");
+    return;
+  }
+  stopMusic("behavior_check");
 }
 
 requestAnimationFrame(frame);
