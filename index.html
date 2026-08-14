@@ -268,17 +268,55 @@
         position: fixed;
         inset: 0;
         z-index: 5;
+        isolation: isolate;
+        background-color: #2f7bff;
+        font-family: "Fredoka", "Segoe UI", sans-serif;
+        color: #111;
+        overflow: hidden;
+      }
+      /* Ken Burns sutil sobre la misma imagen; 0% === 100% para un loop cerrado. */
+      #menu::before {
+        content: "";
+        position: absolute;
+        inset: -18%;
+        z-index: 0;
+        pointer-events: none;
         background-color: #2f7bff;
         background-image: url("/boli_fondo.png");
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
-        font-family: "Fredoka", "Segoe UI", sans-serif;
-        color: #111;
-        overflow: hidden;
+        transform-origin: center center;
+        will-change: transform;
+        animation: menu-bg-drift 64s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+      }
+      @keyframes menu-bg-drift {
+        0% {
+          transform: translate3d(0, 0, 0) scale(1.06);
+        }
+        22% {
+          transform: translate3d(-2.4%, 0.7%, 0) scale(1.09);
+        }
+        48% {
+          transform: translate3d(2.2%, -0.55%, 0) scale(1.045);
+        }
+        74% {
+          transform: translate3d(-0.9%, 1.05%, 0) scale(1.11);
+        }
+        100% {
+          transform: translate3d(0, 0, 0) scale(1.06);
+        }
       }
       #menu.hidden {
         display: none !important;
+      }
+      #menu.hidden::before {
+        animation: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #menu::before {
+          animation: none !important;
+        }
       }
       #menu button,
       #menu input {
