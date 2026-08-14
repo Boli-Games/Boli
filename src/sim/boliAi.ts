@@ -279,9 +279,6 @@ function tickBoli(state: GameState, entity: Entity, dt: number, rng: () => numbe
     case "REACT":
       tickReact(entity, dt);
       break;
-    case "DANCE":
-      tickDance(state, entity, dt, rng);
-      break;
   }
 }
 
