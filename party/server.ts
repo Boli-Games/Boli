@@ -52,7 +52,26 @@ export class BoliRoom extends Server {
   outcome: RoundOutcome | null = null;
   locked = false;
 
+  async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.searchParams.get("reset") === "1") {
+      for (const conn of this.getConnections()) {
+        send(conn, { t: "closed", reason: "Sala reiniciada." });
+        conn.close();
+      }
+      this.resetRoom();
+      return new Response("reset ok", { status: 200 });
+    }
+    return new Response("boli room", { status: 200 });
+  }
+
   onConnect(conn: Connection): void {
+    const live = [...this.getConnections()].map((item) => item.id);
+    const hostAlive = Boolean(this.hostId && live.includes(this.hostId));
+    if (this.hostId && !hostAlive) {
+      this.resetRoom();
+    }
+
     if (this.playing) {
       send(conn, { t: "error", message: "La ronda ya empezó." });
       conn.close();
