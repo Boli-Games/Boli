@@ -452,6 +452,15 @@ export function isRiggedBoli(mesh: THREE.Object3D): boolean {
   return mesh.userData.kind === "rigged" || animators.has(mesh);
 }
 
+export function disposeBoliCharacter(root: THREE.Object3D): void {
+  const animator = animators.get(root);
+  if (animator) {
+    animator.mixer.stopAllAction();
+    animators.delete(root);
+  }
+  root.userData.mixer = undefined;
+}
+
 export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void {
   const animator = animators.get(mesh);
   if (!animator) {

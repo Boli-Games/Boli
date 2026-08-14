@@ -34,6 +34,7 @@ import {
   syncBoliAnimation,
   tickBoliAnimation,
   boliSkinName,
+  disposeBoliCharacter,
 } from "./view/boliCharacter";
 
 const BOLI_COLOR = 0xe4d2b2;
@@ -47,6 +48,7 @@ const AMMO_SLOTS = 6;
 
 type Hud = {
   time: HTMLElement;
+  round: HTMLElement;
   mode: HTMLElement;
   hint: HTMLElement;
   mission: HTMLElement;
@@ -71,6 +73,7 @@ type Hud = {
 
 type HudCache = {
   time: string;
+  round: string;
   hearts: number;
   critical: boolean;
   ammoShown: boolean;
@@ -90,6 +93,7 @@ type HudCache = {
 
 const hudCache: HudCache = {
   time: "",
+  round: "",
   hearts: -1,
   critical: false,
   ammoShown: false,
@@ -123,6 +127,9 @@ export type ViewOpts = {
   paused?: boolean;
   cameraMode?: CameraMode;
   touchUi?: boolean;
+  roundNumber?: number;
+  totalRounds?: number;
+  overlay?: boolean;
 };
 
 export type GameView = {
@@ -239,10 +246,13 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     lastState = state;
     ensureWorld(state);
     while (characterRoot.children.length > 0) {
-      characterRoot.remove(characterRoot.children[0]);
+      const child = characterRoot.children[0];
+      disposePerson(child);
+      characterRoot.remove(child);
     }
     boliMeshes.clear();
     extraMeshes.length = 0;
+    hunterMesh = null;
     for (const entity of state.entities) {
       const mesh = spawnPerson(BOLI_COLOR, false, entity.id, entity.skinId ?? 0);
       mesh.userData.entityId = entity.id;
@@ -1288,6 +1298,7 @@ function bindHud(): Hud {
   }
   return {
     time: must("#time"),
+    round: must("#roundTag"),
     mode: must("#mode"),
     hint: must("#hint"),
     mission: must("#mission"),
@@ -1321,6 +1332,7 @@ function must(selector: string): HTMLElement {
 
 function resetHudCache(): void {
   hudCache.time = "";
+  hudCache.round = "";
   hudCache.hearts = -1;
   hudCache.critical = false;
   hudCache.ammoShown = false;
@@ -1416,6 +1428,31 @@ function setAmmo(hud: Hud, ammo: number): void {
   }
 }
 
+function disposePerson(root: THREE.Object3D): void {
+  disposeBoliCharacter(root);
+  if (root.userData.kind === "rigged") {
+    return;
+  }
+  const seen = new Set<THREE.BufferGeometry | THREE.Material>();
+  root.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) {
+      return;
+    }
+    if (mesh.geometry && !seen.has(mesh.geometry)) {
+      seen.add(mesh.geometry);
+      mesh.geometry.dispose();
+    }
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      if (mat && !seen.has(mat)) {
+        seen.add(mat);
+        mat.dispose();
+      }
+    }
+  });
+}
+
 function setBanner(hud: Hud, raw: string | undefined): void {
   const now = performance.now();
   if (raw) {
@@ -1457,6 +1494,13 @@ function updateHud(
   if (hudCache.time !== time) {
     hud.time.textContent = time;
     hudCache.time = time;
+  }
+  const roundNumber = opts.roundNumber ?? 1;
+  const totalRounds = opts.totalRounds ?? 5;
+  const round = `RONDA ${roundNumber} / ${totalRounds}`;
+  if (hudCache.round !== round) {
+    hud.round.textContent = round;
+    hudCache.round = round;
   }
   const mission = missionSummary(state);
   setBanner(hud, state.behaviorCheck?.banner);
@@ -1548,10 +1592,11 @@ function updateHud(
   }
 
   const playing = state.phase === "PLAYING";
-  if (playing) {
-    if (!hudCache.playing) {
+  if (playing || opts.overlay) {
+    if (!hudCache.playing || hudCache.endTitle !== "") {
       hud.end.classList.add("hidden");
       hudCache.playing = true;
+      hudCache.endTitle = "";
     }
     return;
   }

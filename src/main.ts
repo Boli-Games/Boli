@@ -7,6 +7,8 @@ import {
 import { playMusic, preloadGameMusic, stopAllGameMusic, stopMusic } from "./audio";
 import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
+import { bindBoard } from "./board";
+import { TOTAL_ROUNDS } from "./net/championship";
 import {
   canRequestFullscreen,
   initPlatform,
@@ -22,6 +24,7 @@ import { applyRoundRewards, parseCameraMode, sensitivityToSlider, sliderToSensit
 import {
   applySnapshot,
   createGame,
+  extractRoundReport,
   fireAtEntity,
   hunterForController,
   playerEntity,
@@ -81,6 +84,9 @@ type OnlineSession = {
   shotsSeen: Map<string, number>;
   pendingShots: { id: string; targetId: string | null }[];
   snapAcc: number;
+  roundNumber: number;
+  totalRounds: number;
+  roundEndSent: boolean;
 };
 
 let mode: "menu" | "online" = "menu";
@@ -117,6 +123,10 @@ const menu = bindMenu({
   onJoin: (code) => joinRoom(code, false),
   onStart: () => online?.room.send({ t: "start" }),
   onLeave: () => backToMenu(),
+});
+const board = bindBoard({
+  onReady: (ready) => online?.room.send({ t: "ready", ready }),
+  onVote: (choice) => online?.room.send({ t: "vote", choice }),
 });
 
 onProfileChange(() => menu.refreshProfile());
@@ -199,6 +209,9 @@ function joinRoom(code: string, created: boolean): void {
     shotsSeen: new Map(),
     pendingShots: [],
     snapAcc: 0,
+    roundNumber: 1,
+    totalRounds: TOTAL_ROUNDS,
+    roundEndSent: false,
   };
   mode = "menu";
   history.replaceState(null, "", `?room=${code}`);
@@ -220,13 +233,16 @@ function handleNet(msg: ServerMsg): void {
     return;
   }
   if (msg.t === "closed") {
-    backToMenu(msg.reason);
+    backToMenu(msg.reason === "menu" ? "" : msg.reason);
     return;
   }
   if (msg.t === "welcome") {
     online.localId = msg.you;
     online.hostId = msg.hostId;
     online.isHost = msg.you === msg.hostId;
+    if (mode === "online" && assigned) {
+      return;
+    }
     menu.showLobby({
       code: online.code,
       isHost: online.isHost,
@@ -239,6 +255,9 @@ function handleNet(msg: ServerMsg): void {
   if (msg.t === "lobby") {
     online.hostId = msg.hostId;
     online.isHost = online.localId === msg.hostId;
+    if (mode === "online" && assigned) {
+      return;
+    }
     menu.showLobby({
       code: online.code,
       isHost: online.isHost,
@@ -254,6 +273,9 @@ function handleNet(msg: ServerMsg): void {
     view.rebuild(state);
     online.hunterId = msg.hunterId;
     online.hiderIds = msg.hiderIds;
+    online.roundNumber = msg.roundNumber ?? 1;
+    online.totalRounds = msg.totalRounds ?? TOTAL_ROUNDS;
+    online.roundEndSent = false;
     online.remotes.clear();
     online.shotsSeen.clear();
     online.pendingShots.length = 0;
@@ -270,7 +292,19 @@ function handleNet(msg: ServerMsg): void {
     last = performance.now();
     lastSim = last;
     acc = 0;
+    board.hide();
     enterPlay();
+    return;
+  }
+  if (msg.t === "championship") {
+    online.roundNumber = msg.state.roundNumber;
+    online.totalRounds = msg.state.totalRounds;
+    if (msg.state.phase === "playing") {
+      board.hide();
+      return;
+    }
+    board.render(msg.state, online.localId);
+    freezePlay();
     return;
   }
   if (msg.t === "input" && online.isHost) {
@@ -291,6 +325,7 @@ function handleNet(msg: ServerMsg): void {
     applySnapshot(state, msg.snap, online.localId);
     syncRoleFromState(false);
     maybeReward();
+    maybeOpenBoard();
   }
 }
 
@@ -320,6 +355,7 @@ function syncRoleFromState(forceLook: boolean): void {
 
 function enterPlay(): void {
   menu.hide();
+  board.hide();
   hud.classList.remove("hidden");
   document.documentElement.classList.add("is-playing");
   touch.setRole(role);
@@ -339,6 +375,7 @@ function backToMenu(error = ""): void {
   input.setEnabled(false);
   touch.setVisible(false);
   document.documentElement.classList.remove("is-playing");
+  board.hide();
   teardownOnline();
   state = null;
   mode = "menu";
@@ -444,11 +481,6 @@ function frame(now: number): void {
   const localId = online?.localId ?? "";
 
   if (frameInput.pause) {
-    if (state.phase !== "PLAYING") {
-      backToMenu();
-      requestAnimationFrame(frame);
-      return;
-    }
     setPaused(!paused);
   }
 
@@ -553,6 +585,10 @@ function frame(now: number): void {
   if (state.phase !== "PLAYING" && document.pointerLockElement === canvas) {
     document.exitPointerLock();
   }
+  if (state.phase !== "PLAYING") {
+    freezePlay();
+    maybeOpenBoard();
+  }
 
   syncMatchMusic(state);
 
@@ -570,6 +606,9 @@ function frame(now: number): void {
     paused,
     cameraMode: getProfile().cameraMode,
     touchUi: usesTouchInput(),
+    roundNumber: online?.roundNumber ?? 1,
+    totalRounds: online?.totalRounds ?? TOTAL_ROUNDS,
+    overlay: board.visible(),
   });
   requestAnimationFrame(frame);
 }
@@ -597,6 +636,13 @@ function stepHost(now: number): void {
       online.snapAcc = 0;
       online.room.send({ t: "snapshot", snap: snapshotOf(state) });
     }
+  }
+  if (state.phase !== "PLAYING" && !online.roundEndSent) {
+    online.roundEndSent = true;
+    online.room.send({ t: "snapshot", snap: snapshotOf(state) });
+    online.room.send({ t: "roundEnd", report: extractRoundReport(state) });
+    freezePlay();
+    maybeOpenBoard();
   }
   maybeReward();
 }
@@ -638,6 +684,35 @@ function resolveShots(): boolean {
     fireAtEntity(state, target, hunter);
   }
   return true;
+}
+
+function freezePlay(): void {
+  if (paused) {
+    setPaused(false);
+  }
+  input.setEnabled(false);
+  touch.setVisible(false);
+  document.exitPointerLock();
+}
+
+function maybeOpenBoard(): void {
+  if (!state || !online || state.phase === "PLAYING" || board.visible()) {
+    return;
+  }
+  board.showPending(online.roundNumber, online.totalRounds, roundOutcomeTitle(state));
+}
+
+function roundOutcomeTitle(game: GameState): string {
+  if (game.phase === "HUNTER_WIN") {
+    return "El infiltrado cayó";
+  }
+  if (game.objectives.every((objective) => objective.done)) {
+    return "El boli cumplió la misión";
+  }
+  if (game.hunter.hp <= 0 && game.extraHunters.every((hunter) => hunter.hp <= 0)) {
+    return "El cazador se quedó sin pulso";
+  }
+  return "El boli sobrevivió";
 }
 
 function must(selector: string): HTMLElement {

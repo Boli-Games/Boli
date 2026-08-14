@@ -2,6 +2,7 @@ import { enterWander, startleCrowd, tickBolis } from "./boliAi";
 import { clockAllowsTimerWin, clockTickDelta } from "./debugClock";
 import { createHunter, tickHunterAi, tickHunterControlled, type HunterInput } from "./hunter";
 import { tickInfiltrator, type InfiltratorInput } from "./infiltrator";
+import type { RoundReport } from "../net/championship";
 import { RHYTHM, ROUND, VIEW, type Entity, type GameState, type Hunter } from "./types";
 import { worldMinuteFromTimeLeft, wrapMinute, WORLD_MINUTES_PER_SECOND } from "./worldClock";
 import { createAmmoCrates, createObjectives, createWorld, randomWalkablePoint, sampleHeight } from "./world";
@@ -107,6 +108,12 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
       poiId: null,
       cooldown: 4,
     },
+    roundStats: {
+      originalHunterId: hunterId,
+      originalHiderIds: [...hiderIds],
+      eliminations: {},
+      objectiveAuthors: {},
+    },
   };
 }
 
@@ -210,6 +217,15 @@ function tickMission(state: GameState, dt: number): void {
     objective.hold += dt;
     if (objective.hold >= RHYTHM.objectiveHold) {
       objective.done = true;
+      const authors = hiders
+        .filter(
+          (player) =>
+            Math.hypot(player.x - objective.x, player.y - objective.y) <= objective.radius &&
+            Math.abs(player.z - objective.z) < 8,
+        )
+        .map((player) => player.controllerId)
+        .filter((id): id is string => Boolean(id));
+      state.roundStats.objectiveAuthors[objective.id] = authors;
     }
   }
   if (state.objectives.every((objective) => objective.done)) {
@@ -337,6 +353,10 @@ export function fireAtEntity(state: GameState, target: Entity | null, hunter: Hu
   }
 
   const controllerId = target.controllerId;
+  if (hunter.controllerId) {
+    const killer = hunter.controllerId;
+    state.roundStats.eliminations[killer] = (state.roundStats.eliminations[killer] ?? 0) + 1;
+  }
   target.downed = true;
   target.isPlayer = false;
   target.controllerId = null;
@@ -404,6 +424,44 @@ export function missionSummary(state: GameState): { done: number; total: number;
   return { done, total: state.objectives.length, next };
 }
 
+export function extractRoundReport(state: GameState): RoundReport {
+  const stats = state.roundStats ?? {
+    originalHunterId: null,
+    originalHiderIds: [],
+    eliminations: {},
+    objectiveAuthors: {},
+  };
+  const ids = new Set<string>();
+  if (stats.originalHunterId) {
+    ids.add(stats.originalHunterId);
+  }
+  for (const id of stats.originalHiderIds) {
+    ids.add(id);
+  }
+  const players = [...ids].map((id) => {
+    const startedAs: "HUNTER" | "INFILTRATOR" = id === stats.originalHunterId ? "HUNTER" : "INFILTRATOR";
+    const stillHider = state.entities.some(
+      (entity) => entity.controllerId === id && entity.isPlayer && !entity.downed,
+    );
+    const asHunter = hunterForController(state, id) !== null;
+    const objectivesCompleted = Object.values(stats.objectiveAuthors).filter((authors) =>
+      authors.includes(id),
+    ).length;
+    return {
+      id,
+      startedAs,
+      survived: startedAs === "INFILTRATOR" && stillHider,
+      objectivesCompleted: startedAs === "INFILTRATOR" ? objectivesCompleted : 0,
+      eliminations: stats.eliminations[id] ?? 0,
+      wasHunter: startedAs === "HUNTER" || asHunter,
+    };
+  });
+  return {
+    outcome: state.phase === "HUNTER_WIN" ? "HUNTER_WIN" : "INFILTRATOR_WIN",
+    players,
+  };
+}
+
 export function snapshotOf(state: GameState): Omit<GameState, "world"> {
   return JSON.parse(JSON.stringify({ ...state, world: undefined })) as Omit<GameState, "world">;
 }
@@ -422,6 +480,14 @@ export function applySnapshot(
   state.world = world;
   if (typeof state.worldMinute !== "number") {
     state.worldMinute = worldMinuteFromTimeLeft(state.timeLeft);
+  }
+  if (!state.roundStats) {
+    state.roundStats = {
+      originalHunterId: null,
+      originalHiderIds: [],
+      eliminations: {},
+      objectiveAuthors: {},
+    };
   }
   for (const entity of state.entities) {
     if (typeof entity.skinId !== "number") {
