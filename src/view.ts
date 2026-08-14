@@ -15,7 +15,8 @@ import {
 import { missionSummary } from "./sim/game";
 import { skinById } from "./profile";
 import { createForest } from "./view/forest";
-import { createHorizonBackdrop, HORIZON_MARGIN } from "./view/horizon";
+import { addGroundSurfaces } from "./view/ground";
+import { createHorizonBackdrop } from "./view/horizon";
 import { createSky } from "./view/sky";
 import {
   boliTemplateReady,
@@ -360,16 +361,8 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 }
 
 function buildWorld(root: THREE.Group, state: GameState): void {
-  const { width, height, pois, cover, houses, ramps } = state.world;
-  const groundPad = HORIZON_MARGIN + 6;
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(width + groundPad * 2, height + groundPad * 2),
-    new THREE.MeshLambertMaterial({ color: 0x4f5c46 }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(width * 0.5, 0, height * 0.5);
-  ground.receiveShadow = true;
-  root.add(ground);
+  const { pois, cover, houses, ramps } = state.world;
+  addGroundSurfaces(root, state.world);
 
   const coverMat = new THREE.MeshLambertMaterial({ color: 0x4a4338 });
   for (const rect of cover) {
@@ -562,18 +555,12 @@ function makePoi(poi: Poi): THREE.Group {
     figure.position.y = 10;
     group.add(ped, figure);
   } else {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(poi.radius * 0.55, poi.radius, 24),
-      new THREE.MeshLambertMaterial({ color: 0x3a4a3c, side: THREE.DoubleSide }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.05;
     const post = new THREE.Mesh(
       new THREE.CylinderGeometry(1.3, 1.6, 7, 8),
       new THREE.MeshLambertMaterial({ color: 0x6b5a3e }),
     );
     post.position.y = 3.5;
-    group.add(ring, post);
+    group.add(post);
   }
   return group;
 }
