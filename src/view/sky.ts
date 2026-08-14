@@ -334,6 +334,11 @@ export function skyAmount(timeLeft: number): number {
   return cycleAmount(worldHour(worldMinuteFromTimeLeft(timeLeft)));
 }
 
+/** Same 0–1 day blend as sky lighting, from a world hour (0–24). */
+export function dayAmountFromHour(hour: number): number {
+  return cycleAmount(hour);
+}
+
 /**
  * Lighting / sky blend (0 night → 1 day). Same `t` for dome, fog, hemi, fill.
  * Sun/moon key lights use `celestialBodyAlpha` so only one dominates.

@@ -19,6 +19,7 @@ import { addBoundaryFence } from "./view/fence";
 import { addGroundSurfaces, tickGrassLod } from "./view/ground";
 import { createHorizonBackdrop } from "./view/horizon";
 import { createSky, skyAmount } from "./view/sky";
+import { createTorches } from "./view/torches";
 import { createBlobShadows, type BlobShadowPose } from "./view/blobShadow";
 import { applyWorldBoxUVs, getCasitaWallMaterial, preloadHouseSurfaces } from "./view/houseSurfaces";
 import { tickPerfOverlay } from "./debug/perfOverlay";
@@ -177,6 +178,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 
   const sky = createSky(scene, fpsCamera);
   const forest = createForest(scene);
+  const torches = createTorches(scene);
   const horizon = createHorizonBackdrop(scene);
   const blobs = createBlobShadows(scene);
   const hud = bindHud();
@@ -212,6 +214,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     crateMeshes.clear();
     buildWorld(worldRoot, state);
     forest.layout(state.world.width, state.world.height);
+    torches.layout(state.world);
     try {
       horizon.layout(state.world.width, state.world.height);
     } catch (err) {
@@ -457,6 +460,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     const now = performance.now();
     const animDt = opts.paused ? 0 : Math.min(0.05, (now - lastAnimAt) / 1000);
     lastAnimAt = now;
+    torches.tick(fpsCamera.position, state.worldMinute, animDt, Boolean(opts.paused));
     for (const mesh of boliMeshes.values()) {
       tickBoliAnimation(mesh, animDt);
     }
