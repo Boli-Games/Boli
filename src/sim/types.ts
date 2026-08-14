@@ -174,6 +174,13 @@ export type ShotEvent = {
   ttl: number;
 };
 
+export type RoundStats = {
+  originalHunterId: string | null;
+  originalHiderIds: string[];
+  eliminations: Record<string, number>;
+  objectiveAuthors: Record<string, string[]>;
+};
+
 export type GameState = {
   world: World;
   entities: Entity[];
@@ -199,6 +206,7 @@ export type GameState = {
     poiId: string | null;
     cooldown: number;
   };
+  roundStats: RoundStats;
 };
 
 /** Ritmo compartido: un solo lugar para tunear. */

@@ -212,6 +212,7 @@ function runCommand(raw: string, state: GameState | null): string {
       "time set HH:MM   (00:00 noche · 06:00 día · 12:00 mediodía · 18:00 atardecer)",
       "time pause | resume",
       "time speed <n>",
+      "round end | round hunter   (termina la ronda en localhost)",
       "ai help | ai stuck | ai debug on | ai check house | ai test",
       "perf on | off | dump   (F3 overlay, solo localhost)",
     ].join("\n");
@@ -282,6 +283,17 @@ function runCommand(raw: string, state: GameState | null): string {
     }
     const result = applyWorldMinute(state, hours * 60 + minutes);
     return "Time set to " + pad(hours) + ":" + pad(minutes) + "\n" + result;
+  }
+
+  if (lower === "round end" || lower === "round hunter") {
+    if (!state) {
+      return "no hay partida";
+    }
+    clock.holdWin = false;
+    clock.paused = false;
+    state.timeLeft = 0;
+    state.phase = lower === "round hunter" ? "HUNTER_WIN" : "INFILTRATOR_WIN";
+    return lower === "round hunter" ? "ronda: cazadores" : "ronda: bolis";
   }
 
   return "comando desconocido — help";
