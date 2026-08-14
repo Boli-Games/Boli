@@ -149,6 +149,10 @@ function place(entity: Entity, x: number, y: number, tx: number, ty: number, sta
   entity.state = stateName;
   entity.targetX = tx;
   entity.targetY = ty;
+  entity.goalX = tx;
+  entity.goalY = ty;
+  entity.route = null;
+  entity.routeStep = 0;
   entity.stateTimer = 30;
   entity.regroupPoiId = stateName === "REGROUP" ? "check-house" : null;
   entity.stuckTimer = 0;

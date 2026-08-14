@@ -262,6 +262,44 @@
         padding: 0;
         margin: 0;
       }
+      .cam-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        margin: 12px 0 8px;
+        color: #c5c0b2;
+        font-size: 14px;
+      }
+      .cam-row > span {
+        width: 100%;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: #9aa3ad;
+      }
+      .cam-row button {
+        width: auto;
+        flex: 1;
+        min-width: 120px;
+        margin: 0;
+      }
+      .cam-row button.on {
+        background: #3d5c48;
+        border-color: #5a7d64;
+      }
+      .menu-choice {
+        display: flex;
+        gap: 8px;
+      }
+      .menu-choice .menu-btn {
+        flex: 1;
+      }
+      .menu-choice .menu-btn.on {
+        background: #111;
+        color: #fff;
+      }
 
       /* —— Menú cartoon: pantallas exclusivas —— */
       #menu {
@@ -896,7 +934,19 @@
         </div>
       </div>
 
-      <!-- Chrome del menú principal: mute + perfil + marca (solo visibles en home) -->
+      <!-- Pantalla 4: ajustes -->
+      <div id="screenSettings" class="menu-screen hidden" aria-hidden="true">
+        <button type="button" class="menu-btn menu-btn-sm menu-back" id="btnBackSettings">← Volver</button>
+        <h1 class="menu-heading">AJUSTES</h1>
+        <div class="menu-card">
+          <h2>Cámara</h2>
+          <p class="tag">Tercera persona deja ver tu boli. Primera persona es a los ojos.</p>
+          <div class="menu-choice" role="group" aria-label="Modo de cámara">
+            <button type="button" class="menu-btn" id="btnSetCamThird">Tercera persona</button>
+            <button type="button" class="menu-btn" id="btnSetCamFirst">Primera persona</button>
+          </div>
+        </div>
+      </div>
       <div id="homeChrome">
         <button type="button" id="btnMute" aria-label="Silenciar música" aria-pressed="false">
           <svg class="mute-icon-on" viewBox="0 0 24 24" aria-hidden="true">
@@ -953,6 +1003,11 @@
           Sensibilidad
           <input id="sens" type="range" min="1" max="10" step="1" />
         </label>
+        <div class="cam-row" role="group" aria-label="Cámara">
+          <span>Cámara</span>
+          <button type="button" id="btnCamThird">Tercera persona</button>
+          <button type="button" id="btnCamFirst">Primera persona</button>
+        </div>
         <button type="button" class="primary" id="btnResume">Continuar</button>
         <button type="button" id="btnQuit">Salir al menú</button>
       </div>

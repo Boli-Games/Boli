@@ -6,6 +6,9 @@ export const CLIP_WALK = "boli_walk";
 export const CLIP_CROUCH_IDLE = "boli_crouch_idle";
 export const CLIP_CROUCH_WALK = "boli_crouch_walk";
 export const CLIP_DOWNED = "boli_downed";
+export const CLIP_DANCE_1 = "boli_dance_1";
+export const CLIP_DANCE_2 = "boli_dance_2";
+export const CLIP_DANCE_3 = "boli_dance_3";
 
 const DEG = Math.PI / 180;
 const euler = new THREE.Euler(0, 0, 0, "XYZ");
@@ -46,6 +49,9 @@ export function buildBoliClips(scene: THREE.Object3D): THREE.AnimationClip[] {
     buildCrouchIdle(hipBind),
     buildCrouchWalk(hipBind),
     buildDowned(),
+    buildDance1(hipBind),
+    buildDance2(hipBind),
+    buildDance3(hipBind),
   ];
 }
 
@@ -337,5 +343,141 @@ function buildDowned(): THREE.AnimationClip {
       [12, 0, 0],
       [20, 0, 0],
     ]),
+  ]);
+}
+
+function buildDance1(hipBind: THREE.Vector3): THREE.AnimationClip {
+  const duration = 1.35;
+  const steps = 16;
+  const times = sampleTimes(duration, steps);
+  const hipsQ: Array<[number, number, number]> = [];
+  const hipsP: Array<[number, number, number]> = [];
+  const spineQ: Array<[number, number, number]> = [];
+  const chestQ: Array<[number, number, number]> = [];
+  const headQ: Array<[number, number, number]> = [];
+  const lArm: Array<[number, number, number]> = [];
+  const rArm: Array<[number, number, number]> = [];
+  const lFore: Array<[number, number, number]> = [];
+  const rFore: Array<[number, number, number]> = [];
+  const lUp: Array<[number, number, number]> = [];
+  const rUp: Array<[number, number, number]> = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * Math.PI * 2;
+    const s = Math.sin(u);
+    const c = Math.cos(u);
+    hipsQ.push([4 * Math.abs(s), 22 * s, 8 * c]);
+    hipsP.push([hipBind.x + 0.04 * s, hipBind.y + 0.05 * Math.abs(c), hipBind.z]);
+    spineQ.push([8 * s, 10 * c, 0]);
+    chestQ.push([6 * -s, 14 * s, 0]);
+    headQ.push([8 * c, 16 * s, 0]);
+    lArm.push([-20 + 12 * c, 18 * s, 78 + 22 * s]);
+    rArm.push([-18 - 12 * c, 18 * -s, -78 - 22 * s]);
+    lFore.push([0, 0, 28 + 18 * Math.abs(s)]);
+    rFore.push([0, 0, -28 - 18 * Math.abs(s)]);
+    lUp.push([8 * Math.max(0, s), 6 * s, 0]);
+    rUp.push([8 * Math.max(0, -s), 6 * -s, 0]);
+  }
+  return new THREE.AnimationClip(CLIP_DANCE_1, duration, [
+    quatTrack("Hips", times, hipsQ),
+    posTrack("Hips", times, hipsP),
+    quatTrack("Spine", times, spineQ),
+    quatTrack("Chest", times, chestQ),
+    quatTrack("Head", times, headQ),
+    quatTrack("LeftUpperArm", times, lArm),
+    quatTrack("RightUpperArm", times, rArm),
+    quatTrack("LeftLowerArm", times, lFore),
+    quatTrack("RightLowerArm", times, rFore),
+    quatTrack("LeftUpperLeg", times, lUp),
+    quatTrack("RightUpperLeg", times, rUp),
+  ]);
+}
+
+function buildDance2(hipBind: THREE.Vector3): THREE.AnimationClip {
+  const duration = 1.1;
+  const steps = 16;
+  const times = sampleTimes(duration, steps);
+  const hipsQ: Array<[number, number, number]> = [];
+  const hipsP: Array<[number, number, number]> = [];
+  const spineQ: Array<[number, number, number]> = [];
+  const chestQ: Array<[number, number, number]> = [];
+  const lArm: Array<[number, number, number]> = [];
+  const rArm: Array<[number, number, number]> = [];
+  const lUp: Array<[number, number, number]> = [];
+  const rUp: Array<[number, number, number]> = [];
+  const lLow: Array<[number, number, number]> = [];
+  const rLow: Array<[number, number, number]> = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * Math.PI * 2;
+    const s = Math.sin(u);
+    const c = Math.cos(u);
+    const bounce = Math.abs(Math.sin(u * 2));
+    hipsQ.push([10 * bounce, 8 * s, 0]);
+    hipsP.push([hipBind.x, hipBind.y + 0.11 * bounce, hipBind.z]);
+    spineQ.push([14 * bounce, -6 * s, 0]);
+    chestQ.push([10 * bounce, 8 * c, 0]);
+    lArm.push([-70 + 20 * bounce, 12 * s, 20]);
+    rArm.push([-70 + 20 * bounce, -12 * s, -20]);
+    lUp.push([-18 * Math.max(0, s), 0, 0]);
+    rUp.push([-18 * Math.max(0, -s), 0, 0]);
+    lLow.push([28 * Math.max(0, s), 0, 0]);
+    rLow.push([28 * Math.max(0, -s), 0, 0]);
+  }
+  return new THREE.AnimationClip(CLIP_DANCE_2, duration, [
+    quatTrack("Hips", times, hipsQ),
+    posTrack("Hips", times, hipsP),
+    quatTrack("Spine", times, spineQ),
+    quatTrack("Chest", times, chestQ),
+    quatTrack("LeftUpperArm", times, lArm),
+    quatTrack("RightUpperArm", times, rArm),
+    quatTrack("LeftUpperLeg", times, lUp),
+    quatTrack("RightUpperLeg", times, rUp),
+    quatTrack("LeftLowerLeg", times, lLow),
+    quatTrack("RightLowerLeg", times, rLow),
+  ]);
+}
+
+function buildDance3(hipBind: THREE.Vector3): THREE.AnimationClip {
+  const duration = 1.55;
+  const steps = 16;
+  const times = sampleTimes(duration, steps);
+  const hipsQ: Array<[number, number, number]> = [];
+  const hipsP: Array<[number, number, number]> = [];
+  const spineQ: Array<[number, number, number]> = [];
+  const chestQ: Array<[number, number, number]> = [];
+  const headQ: Array<[number, number, number]> = [];
+  const lArm: Array<[number, number, number]> = [];
+  const rArm: Array<[number, number, number]> = [];
+  const lUp: Array<[number, number, number]> = [];
+  const rUp: Array<[number, number, number]> = [];
+  const lLow: Array<[number, number, number]> = [];
+  const rLow: Array<[number, number, number]> = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * Math.PI * 2;
+    const s = Math.sin(u);
+    const c = Math.cos(u);
+    hipsQ.push([6 * c, 28 * s, 12 * c]);
+    hipsP.push([hipBind.x + 0.03 * c, hipBind.y + 0.04 * Math.abs(s), hipBind.z]);
+    spineQ.push([10 * s, 18 * s, 8 * c]);
+    chestQ.push([8 * -s, 16 * c, 0]);
+    headQ.push([12 * s, 20 * -s, 6 * c]);
+    lArm.push([-8, 40 * s, 86 + 10 * c]);
+    rArm.push([-40 + 30 * Math.max(0, -s), -24 * s, -70]);
+    lUp.push([6 * c, 10 * s, 0]);
+    rUp.push([-36 * Math.max(0, s), -8 * s, 0]);
+    lLow.push([8 * Math.abs(c), 0, 0]);
+    rLow.push([42 * Math.max(0, s), 0, 0]);
+  }
+  return new THREE.AnimationClip(CLIP_DANCE_3, duration, [
+    quatTrack("Hips", times, hipsQ),
+    posTrack("Hips", times, hipsP),
+    quatTrack("Spine", times, spineQ),
+    quatTrack("Chest", times, chestQ),
+    quatTrack("Head", times, headQ),
+    quatTrack("LeftUpperArm", times, lArm),
+    quatTrack("RightUpperArm", times, rArm),
+    quatTrack("LeftUpperLeg", times, lUp),
+    quatTrack("RightUpperLeg", times, rUp),
+    quatTrack("LeftLowerLeg", times, lLow),
+    quatTrack("RightLowerLeg", times, rLow),
   ]);
 }

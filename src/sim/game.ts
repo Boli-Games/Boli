@@ -68,6 +68,10 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
       stuckSpeed: 0,
       stuckToward: 0,
       stuckUseful: 0,
+      goalX: spawn.x,
+      goalY: spawn.y,
+      route: null,
+      routeStep: 0,
     };
     entity.lookAngle = entity.angle;
     if (!entity.isPlayer) {
@@ -438,6 +442,18 @@ export function applySnapshot(
       entity.stuckSpeed = 0;
       entity.stuckToward = 0;
       entity.stuckUseful = 0;
+    }
+    if (typeof entity.goalX !== "number") {
+      entity.goalX = entity.targetX;
+      entity.goalY = entity.targetY;
+      entity.route = null;
+      entity.routeStep = 0;
+    }
+    if (!Array.isArray(entity.route)) {
+      entity.route = null;
+    }
+    if (typeof entity.routeStep !== "number") {
+      entity.routeStep = 0;
     }
   }
   if (keptHunterCopy && localId) {

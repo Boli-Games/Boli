@@ -7,6 +7,7 @@ import {
   wrapMinute,
 } from "../sim/worldClock";
 import { handleAiCommand, installAiDebug } from "./aiDebug";
+import { dumpPerf, setPerfOverlay, togglePerfOverlay } from "./perfOverlay";
 import { isDebugHost } from "./enabled";
 
 /**
@@ -152,6 +153,14 @@ export function installTimeConsole(opts: ConsoleOpts): void {
     if (event.repeat) {
       return;
     }
+    const isPerf = event.code === "F3" || event.key === "F3";
+    if (isPerf) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const on = togglePerfOverlay();
+      log("perf overlay " + (on ? "ON" : "OFF"));
+      return;
+    }
     const isToggle =
       TOGGLE_CODES.has(event.code) || event.key === "F2" || event.key === "F8" || event.key === "`";
     if (isToggle) {
@@ -204,7 +213,20 @@ function runCommand(raw: string, state: GameState | null): string {
       "time pause | resume",
       "time speed <n>",
       "ai help | ai stuck | ai debug on | ai check house | ai test",
+      "perf on | off | dump   (F3 overlay, solo localhost)",
     ].join("\n");
+  }
+
+  if (lower === "perf on" || lower === "perf local") {
+    setPerfOverlay(true);
+    return "perf overlay ON (F3)";
+  }
+  if (lower === "perf off") {
+    setPerfOverlay(false);
+    return "perf overlay OFF";
+  }
+  if (lower === "perf dump") {
+    return dumpPerf();
   }
 
   if (lower === "time pause") {

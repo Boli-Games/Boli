@@ -8,7 +8,7 @@ import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
 import { connectRoom, type RoomClient } from "./net/room";
 import { randomRoomCode, type NetInput, type ServerMsg, emptyInput } from "./net/protocol";
-import { applyRoundRewards, sensitivityToSlider, sliderToSensitivity } from "./profile";
+import { applyRoundRewards, parseCameraMode, sensitivityToSlider, sliderToSensitivity, type CameraMode } from "./profile";
 import {
   applySnapshot,
   createGame,
@@ -140,6 +140,9 @@ sens.addEventListener("input", () => {
   const profile = getProfile();
   setProfile({ ...profile, lookSensitivity: sliderToSensitivity(Number(sens.value)) });
 });
+must("#btnCamThird").addEventListener("click", () => setCameraMode("thirdPerson"));
+must("#btnCamFirst").addEventListener("click", () => setCameraMode("firstPerson"));
+syncPauseCameraButtons();
 
 function joinRoom(code: string, created: boolean): void {
   teardownOnline();
@@ -323,6 +326,7 @@ function setPaused(value: boolean): void {
     document.exitPointerLock();
     input.setEnabled(false);
     sens.value = String(sensitivityToSlider(getProfile().lookSensitivity));
+    syncPauseCameraButtons();
     return;
   }
   if (mode === "online" && state?.phase === "PLAYING") {
@@ -341,6 +345,18 @@ function maybeReward(): void {
     missionWin: state.objectives.every((objective) => objective.done),
   });
   setProfile(next.profile);
+}
+
+function setCameraMode(mode: CameraMode): void {
+  const profile = getProfile();
+  setProfile({ ...profile, cameraMode: parseCameraMode(mode) });
+  syncPauseCameraButtons();
+}
+
+function syncPauseCameraButtons(): void {
+  const mode = getProfile().cameraMode;
+  must("#btnCamThird").classList.toggle("on", mode === "thirdPerson");
+  must("#btnCamFirst").classList.toggle("on", mode === "firstPerson");
 }
 
 function activeYaw(): number {
@@ -414,8 +430,9 @@ function frame(now: number): void {
       const look = Math.cos(hunterPitch);
       const crouch = frameInput.crouch || hunter.crouch;
       const eye = hunter.z + (crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight);
+      const third = getProfile().cameraMode !== "firstPerson";
       view.playShot({
-        firstPerson: true,
+        firstPerson: !third,
         hit: Boolean(target),
         hitX: target ? target.x : hunter.x + Math.cos(hunterYaw) * look * range,
         hitY: target ? target.y : hunter.y + Math.sin(hunterYaw) * look * range,
@@ -487,6 +504,7 @@ function frame(now: number): void {
     online: true,
     hunterSkinId: getProfile().equippedSkin,
     paused,
+    cameraMode: getProfile().cameraMode,
   });
   requestAnimationFrame(frame);
 }

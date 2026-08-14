@@ -16,9 +16,13 @@ import { missionSummary } from "./sim/game";
 import { skinById } from "./profile";
 import { createForest } from "./view/forest";
 import { addBoundaryFence } from "./view/fence";
-import { addGroundSurfaces } from "./view/ground";
+import { addGroundSurfaces, tickGrassLod } from "./view/ground";
 import { createHorizonBackdrop } from "./view/horizon";
-import { createSky } from "./view/sky";
+import { createSky, skyAmount } from "./view/sky";
+import { createBlobShadows, type BlobShadowPose } from "./view/blobShadow";
+import { applyWorldBoxUVs, getCasitaWallMaterial, preloadHouseSurfaces } from "./view/houseSurfaces";
+import { tickPerfOverlay } from "./debug/perfOverlay";
+import type { CameraMode } from "./profile";
 import {
   boliTemplateReady,
   createBoliCharacter,
@@ -67,6 +71,7 @@ export type ViewOpts = {
   online?: boolean;
   hunterSkinId?: string;
   paused?: boolean;
+  cameraMode?: CameraMode;
 };
 
 export type GameView = {
@@ -107,12 +112,18 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   fpsCamera.add(viewmodel);
   const shotFx = createShotFx(scene, fpsCamera, viewmodel);
 
+  const camRay = new THREE.Raycaster();
+  const camFrom = new THREE.Vector3();
+  const camTo = new THREE.Vector3();
+  const camDir = new THREE.Vector3();
+  const hunterAim = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
   const centerNdc = new THREE.Vector2(0, 0);
 
   const sky = createSky(scene, fpsCamera);
   const forest = createForest(scene);
   const horizon = createHorizonBackdrop(scene);
+  const blobs = createBlobShadows(scene);
   const hud = bindHud();
   const beacon = makeBeacon();
   beacon.visible = false;
@@ -123,6 +134,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   let lastState: GameState | null = null;
   let lastAnimAt = performance.now();
 
+  void preloadHouseSurfaces().catch(() => undefined);
   void preloadBoliCharacters()
     .then(() => {
       if (lastState) {
@@ -207,16 +219,48 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     walkTime: number,
     walking: boolean,
     crouch = false,
+    thirdPerson = false,
   ): void {
     const eyeTarget = crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight;
     eyeBlend += (eyeTarget - eyeBlend) * 0.28;
     const bob = walking && !crouch
       ? Math.abs(Math.sin((walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
       : 0;
-    fpsCamera.position.set(x, groundZ + eyeBlend + bob, z);
     fpsCamera.rotation.y = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
     fpsCamera.rotation.x = pitch;
     fpsCamera.rotation.z = 0;
+    if (!thirdPerson) {
+      fpsCamera.position.set(x, groundZ + eyeBlend + bob, z);
+      return;
+    }
+    const lookX = Math.cos(yaw);
+    const lookZ = Math.sin(yaw);
+    const rightX = -lookZ;
+    const rightZ = lookX;
+    const dist = VIEW.tpDistance;
+    const height = crouch ? VIEW.tpHeight * 0.72 : VIEW.tpHeight;
+    camFrom.set(x, groundZ + eyeBlend + bob, z);
+    camTo.set(
+      x - lookX * dist * Math.cos(pitch) + rightX * VIEW.tpShoulder,
+      groundZ + height - Math.sin(pitch) * dist,
+      z - lookZ * dist * Math.cos(pitch) + rightZ * VIEW.tpShoulder,
+    );
+    camDir.copy(camTo).sub(camFrom);
+    const span = camDir.length();
+    if (span > 0.001) {
+      camDir.multiplyScalar(1 / span);
+      camRay.set(camFrom, camDir);
+      camRay.far = span;
+      const hits = camRay.intersectObject(worldRoot, true);
+      const hit = hits.find((item) => {
+        const name = item.object.name || item.object.parent?.name || "";
+        return !name.startsWith("grass-") && name !== "ground-grass";
+      });
+      const pulled = hit ? Math.max(VIEW.tpMinDist, hit.distance - 1.6) : span;
+      fpsCamera.position.copy(camFrom).addScaledVector(camDir, pulled);
+    } else {
+      fpsCamera.position.copy(camTo);
+    }
   }
 
   function render(state: GameState, opts: ViewOpts): void {
@@ -238,24 +282,56 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     const hunterIndex = opts.hunterIndex ?? 0;
     const activeHunter =
       hunterIndex <= 0 ? state.hunter : (state.extraHunters[hunterIndex - 1] ?? state.hunter);
+    const third = opts.cameraMode !== "firstPerson";
 
+    const blobPoses: BlobShadowPose[] = [];
     for (const entity of state.entities) {
       const mesh = boliMeshes.get(entity.id);
       if (!mesh) {
         continue;
       }
       syncPerson(mesh, entity, state.revealTtl > 0 && entity.controllerId === localId, state.clock, Boolean(entity.crouch));
-      mesh.visible = !(opts.role === "INFILTRATOR" && entity.controllerId === localId);
+      mesh.visible = !(opts.role === "INFILTRATOR" && entity.controllerId === localId && !third);
+      blobPoses.push({
+        x: entity.x,
+        y: entity.y,
+        z: entity.z,
+        angle: entity.angle,
+        crouch: Boolean(entity.crouch),
+        downed: entity.downed,
+        hunter: false,
+        visible: mesh.visible,
+      });
     }
     if (hunterMesh) {
       syncHunter(hunterMesh, state.hunter, Boolean(state.hunter.crouch));
-      hunterMesh.visible = !(opts.role === "HUNTER" && hunterIndex === 0);
+      hunterMesh.visible = !(opts.role === "HUNTER" && hunterIndex === 0 && !third);
+      blobPoses.push({
+        x: state.hunter.x,
+        y: state.hunter.y,
+        z: state.hunter.z,
+        angle: state.hunter.angle,
+        crouch: Boolean(state.hunter.crouch),
+        downed: false,
+        hunter: true,
+        visible: hunterMesh.visible,
+      });
     }
     state.extraHunters.forEach((hunter, index) => {
       const mesh = extraMeshes[index];
       if (mesh) {
         syncHunter(mesh, hunter, Boolean(hunter.crouch));
-        mesh.visible = !(opts.role === "HUNTER" && hunterIndex === index + 1);
+        mesh.visible = !(opts.role === "HUNTER" && hunterIndex === index + 1 && !third);
+        blobPoses.push({
+          x: hunter.x,
+          y: hunter.y,
+          z: hunter.z,
+          angle: hunter.angle,
+          crouch: Boolean(hunter.crouch),
+          downed: false,
+          hunter: true,
+          visible: mesh.visible,
+        });
       }
     });
 
@@ -278,8 +354,9 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         activeHunter.walkTime,
         walking,
         opts.crouch || activeHunter.crouch,
+        third,
       );
-      viewmodel.visible = true;
+      viewmodel.visible = !third;
       viewmodel.rotation.x = 0.12 + state.shotKick * 0.12;
       viewmodel.position.set(0.24, -0.3 - state.shotKick * 0.04, -0.46);
     } else if (localEntity) {
@@ -293,10 +370,11 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         localEntity.walkTime,
         walking,
         opts.crouch || localEntity.crouch,
+        third,
       );
       viewmodel.visible = false;
     } else {
-      placeCamera(state.world.width * 0.5, state.world.height * 0.5, 0, opts.yaw, opts.pitch, 0, false);
+      placeCamera(state.world.width * 0.5, state.world.height * 0.5, 0, opts.yaw, opts.pitch, 0, false, false, third);
       viewmodel.visible = false;
     }
 
@@ -332,10 +410,13 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     for (const mesh of extraMeshes) {
       tickBoliAnimation(mesh, animDt);
     }
+    blobs.sync(blobPoses, skyAmount(state.timeLeft));
+    tickGrassLod(fpsCamera.position.x, fpsCamera.position.z);
     renderer.render(scene, fpsCamera);
+    tickPerfOverlay(renderer);
   }
 
-  function pickAimedEntity(state: GameState, _hunter: Hunter, _yaw: number, _pitch: number): Entity | null {
+  function pickAimedEntity(state: GameState, hunter: Hunter, _yaw: number, _pitch: number): Entity | null {
     const targets: THREE.Object3D[] = [];
     for (const entity of state.entities) {
       const mesh = boliMeshes.get(entity.id);
@@ -347,8 +428,9 @@ export function createView(canvas: HTMLCanvasElement): GameView {
       targets.push(mesh);
     }
     fpsCamera.updateMatrixWorld();
+    hunterAim.set(hunter.x, hunter.z + (hunter.crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight), hunter.y);
     raycaster.setFromCamera(centerNdc, fpsCamera);
-    raycaster.far = ROUND.shotRange;
+    raycaster.far = hunterAim.distanceTo(fpsCamera.position) + ROUND.shotRange;
     const hits = raycaster.intersectObjects(targets, true);
     const first = hits[0];
     if (!first) {
@@ -362,7 +444,12 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     if (!id) {
       return null;
     }
-    return state.entities.find((entity) => entity.id === id) ?? null;
+    const entity = state.entities.find((item) => item.id === id) ?? null;
+    if (!entity) {
+      return null;
+    }
+    const reach = Math.hypot(entity.x - hunter.x, entity.y - hunter.y, entity.z + 8 - hunterAim.y);
+    return reach <= ROUND.shotRange ? entity : null;
   }
 
   resize();
@@ -435,7 +522,10 @@ function makeCrate(): THREE.Group {
 
 function makeHouseMesh(house: House): THREE.Group {
   const group = new THREE.Group();
-  const plaster = new THREE.MeshLambertMaterial({ color: house.color });
+  const casita = house.id === "casita";
+  const plaster = casita
+    ? getCasitaWallMaterial()
+    : new THREE.MeshLambertMaterial({ color: house.color });
   const trim = new THREE.MeshLambertMaterial({ color: 0x5c4030 });
   const floorMat = new THREE.MeshLambertMaterial({ color: 0x6e5840 });
   floorMat.polygonOffset = true;
@@ -451,17 +541,19 @@ function makeHouseMesh(house: House): THREE.Group {
   group.add(shadow(floor, false, true));
 
   for (const wall of house.walls) {
-    group.add(
-      box(
-        plaster,
-        wall.w,
-        house.roofZ,
-        wall.h,
-        wall.x + wall.w * 0.5,
-        house.roofZ * 0.5,
-        wall.y + wall.h * 0.5,
-      ),
+    const wallMesh = box(
+      plaster,
+      wall.w,
+      house.roofZ,
+      wall.h,
+      wall.x + wall.w * 0.5,
+      house.roofZ * 0.5,
+      wall.y + wall.h * 0.5,
     );
+    if (casita) {
+      applyWorldBoxUVs(wallMesh);
+    }
+    group.add(wallMesh);
   }
 
   group.add(
@@ -1071,6 +1163,7 @@ function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock:
       walking,
       crouch: crouch && !entity.downed,
       downed: entity.downed,
+      dancing: entity.state === "DANCE",
       walkTime: entity.walkTime,
       x: entity.x,
       y: entity.y,
@@ -1109,7 +1202,9 @@ function syncHunter(mesh: THREE.Group, hunter: Hunter, crouch: boolean): void {
 }
 
 function isHolding(entity: Entity): boolean {
-  return Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y) <= RHYTHM.wanderArriveSlack;
+  const gx = typeof entity.goalX === "number" ? entity.goalX : entity.targetX;
+  const gy = typeof entity.goalY === "number" ? entity.goalY : entity.targetY;
+  return Math.hypot(gx - entity.x, gy - entity.y) <= RHYTHM.wanderArriveSlack;
 }
 
 function bindHud(): Hud {
