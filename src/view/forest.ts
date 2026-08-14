@@ -102,9 +102,9 @@ export function createForest(scene: THREE.Scene): ForestRig {
     }
     clearMeshes();
     const rng = mulberry32(FOREST_SEED);
-    const placements = scatterForest(width, height, rng);
+    const scatter = scatterForestNature(width, height, rng);
     const byKind: Record<Kind, Placement[]> = { a: [], b: [], pine: [] };
-    for (const place of placements) {
+    for (const place of scatter.trees) {
       byKind[place.kind].push(place);
     }
     (Object.keys(byKind) as Kind[]).forEach((kind) => {
@@ -117,19 +117,17 @@ export function createForest(scene: THREE.Scene): ForestRig {
     });
 
     try {
-      const bushes = assets.bush ? scatterBushes(width, height, placements, rng) : [];
-      if (assets.bush && bushes.length > 0) {
-        bushMesh = makeInstancedProp(assets.bush, bushes);
+      if (assets.bush && scatter.bushes.length > 0) {
+        bushMesh = makeInstancedProp(assets.bush, scatter.bushes);
         root.add(bushMesh);
       }
     } catch (err) {
       console.warn("No se pudieron colocar los arbustos:", err);
     }
     try {
-      const logs = assets.logParts.length > 0 ? scatterLogs(width, height, placements, rng) : [];
-      if (logs.length > 0) {
+      if (scatter.logs.length > 0) {
         for (const part of assets.logParts) {
-          const mesh = makeInstancedProp(part, logs);
+          const mesh = makeInstancedProp(part, scatter.logs);
           logMeshes.push(mesh);
           root.add(mesh);
         }
@@ -439,59 +437,210 @@ function findNode(root: THREE.Object3D, name: string): THREE.Object3D | undefine
   return found;
 }
 
-function scatterBushes(width: number, height: number, trees: Placement[], rng: () => number): Placement[] {
+function scatterForestNature(width: number, height: number, rng: () => number): {
+  trees: Placement[];
+  bushes: Placement[];
+  logs: Placement[];
+} {
+  const trees: Placement[] = [];
   const bushes: Placement[] = [];
-  const scale: [number, number] = [0.78, 1.14];
-  for (const tree of trees) {
-    if (rng() > 0.28) {
+  const logs: Placement[] = [];
+
+  const bands: { kind: DepthKind; inner: number; outer: number; step: number; openSkip: number; denseSkip: number }[] = [
+    { kind: "near", inner: 11, outer: 40, step: 64, openSkip: 0.62, denseSkip: 0.2 },
+    { kind: "mid", inner: 36, outer: 96, step: 50, openSkip: 0.4, denseSkip: 0.08 },
+    { kind: "far", inner: 90, outer: FOREST_EXTENT - 8, step: 58, openSkip: 0.48, denseSkip: 0.14 },
+  ];
+
+  for (const band of bands) {
+    forEachSidePoint(width, height, band.inner, band.outer, band.step, rng, (x, z) => {
+      if (!inForestBelt(x, z, width, height)) {
+        return;
+      }
+      const field = groveField(x, z);
+      const skip = band.openSkip + (band.denseSkip - band.openSkip) * field;
+      if (rng() < skip) {
+        return;
+      }
+      const centerClear = band.kind === "near" ? 24 : band.kind === "far" ? 18 : 16;
+      if (tooClose(x, z, centerClear, trees)) {
+        return;
+      }
+      plantForestGrove(x, z, field, band.kind, width, height, trees, bushes, logs, rng);
+    });
+  }
+
+  const corners = [
+    { x: 0, z: 0, nx: -1, nz: -1 },
+    { x: width, z: 0, nx: 1, nz: -1 },
+    { x: width, z: height, nx: 1, nz: 1 },
+    { x: 0, z: height, nx: -1, nz: 1 },
+  ];
+  for (const corner of corners) {
+    const n = Math.hypot(corner.nx, corner.nz);
+    const kind: DepthKind = rng() < 0.35 ? "near" : rng() < 0.75 ? "mid" : "far";
+    const depth = kind === "near" ? 16 + rng() * 18 : kind === "mid" ? 44 + rng() * 36 : 100 + rng() * 40;
+    const x = corner.x + (corner.nx / n) * depth + (rng() - 0.5) * 14;
+    const z = corner.z + (corner.nz / n) * depth + (rng() - 0.5) * 14;
+    if (!inForestBelt(x, z, width, height) || rng() < 0.22 || tooClose(x, z, 20, trees)) {
       continue;
     }
-    const extra = rng() < 0.2 ? 2 : 1;
-    for (let i = 0; i < extra; i++) {
-      const ang = rng() * Math.PI * 2;
-      const dist = 5.2 + rng() * 7.5;
-      const x = tree.x + Math.cos(ang) * dist;
-      const z = tree.z + Math.sin(ang) * dist;
-      if (!inForestBelt(x, z, width, height) || tooClose(x, z, 4.2, trees) || tooClose(x, z, 4.8, bushes)) {
-        continue;
-      }
-      bushes.push(makePropPlace(x, z, scale, rng));
-    }
+    plantForestGrove(x, z, groveField(x, z), kind, width, height, trees, bushes, logs, rng);
   }
-  forEachSidePoint(width, height, 14, FOREST_EXTENT - 12, 46, rng, (x, z) => {
-    if (rng() < 0.58) {
-      return;
-    }
-    if (!inForestBelt(x, z, width, height) || tooClose(x, z, 6.5, trees) || tooClose(x, z, 6.2, bushes)) {
-      return;
-    }
-    bushes.push(makePropPlace(x, z, scale, rng));
-    if (rng() < 0.18) {
-      const ang = rng() * Math.PI * 2;
-      const dist = 4.5 + rng() * 5;
-      const gx = x + Math.cos(ang) * dist;
-      const gz = z + Math.sin(ang) * dist;
-      if (inForestBelt(gx, gz, width, height) && !tooClose(gx, gz, 4.5, trees) && !tooClose(gx, gz, 4.8, bushes)) {
-        bushes.push(makePropPlace(gx, gz, scale, rng));
-      }
-    }
-  });
-  return bushes;
+
+  return { trees, bushes, logs };
 }
 
-function scatterLogs(width: number, height: number, trees: Placement[], rng: () => number): Placement[] {
-  const logs: Placement[] = [];
-  const scale: [number, number] = [0.9, 1.16];
-  forEachSidePoint(width, height, 26, 92, 88, rng, (x, z) => {
-    if (logs.length >= 11 || rng() < 0.38) {
-      return;
+type DepthKind = "near" | "mid" | "far";
+
+function groveField(x: number, z: number): number {
+  return valueNoise(x * 0.0072 + 11.4, z * 0.0072 + 4.1) * 0.74 + valueNoise(x * 0.018 + 2.6, z * 0.018) * 0.26;
+}
+
+function plantForestGrove(
+  cx: number,
+  cz: number,
+  field: number,
+  depth: DepthKind,
+  width: number,
+  height: number,
+  trees: Placement[],
+  bushes: Placement[],
+  logs: Placement[],
+  rng: () => number,
+): void {
+  const recipe = pickForestRecipe(field, depth, rng);
+  const scale: readonly [number, number] =
+    depth === "near" ? [0.9, 1.12] : depth === "mid" ? [0.84, 1.18] : [0.92, 1.26];
+  const planted: Placement[] = [];
+
+  for (let i = 0; i < recipe.trees; i++) {
+    const spot = groveSpot(cx, cz, i === 0 ? 0 : 4, recipe.spread, width, height, rng);
+    if (!spot || tooClose(spot.x, spot.z, recipe.minTree, trees)) {
+      continue;
     }
-    if (!inForestBelt(x, z, width, height) || tooClose(x, z, 12, trees) || tooClose(x, z, 70, logs)) {
-      return;
+    const pine = rng() < recipe.pine;
+    const kind: Kind = pine ? "pine" : rng() < 0.48 ? "a" : "b";
+    const place = makePlace(kind, spot.x, spot.z, scale, rng);
+    trees.push(place);
+    planted.push(place);
+  }
+  if (planted.length === 0) {
+    return;
+  }
+
+  const bushScale: [number, number] = [0.7, 1.2];
+  const clumps = recipe.bushes <= 2 ? 1 : rng() < 0.48 ? 2 : 1;
+  let left = recipe.bushes;
+  for (let c = 0; c < clumps && left > 0; c++) {
+    const anchor = planted[Math.floor(rng() * planted.length)];
+    const clumpN = c === clumps - 1 ? left : Math.max(2, Math.ceil(left / (clumps - c)));
+    const hub = groveSpot(anchor.x, anchor.z, 3.2, 8.5, width, height, rng) ?? { x: anchor.x, z: anchor.z };
+    for (let i = 0; i < clumpN; i++) {
+      const spot = groveSpot(hub.x, hub.z, 1.4, 5.2, width, height, rng);
+      if (!spot || tooClose(spot.x, spot.z, 4.2, trees) || tooClose(spot.x, spot.z, 3.4, bushes)) {
+        continue;
+      }
+      bushes.push(makePropPlace(spot.x, spot.z, bushScale, rng));
     }
-    logs.push(makePropPlace(x, z, scale, rng));
-  });
-  return logs;
+    left -= clumpN;
+  }
+
+  if (recipe.logs > 0 && logs.length < 16) {
+    const anchor = planted[Math.floor(rng() * planted.length)];
+    const spot = groveSpot(anchor.x, anchor.z, 5.5, 11, width, height, rng);
+    if (spot && !tooClose(spot.x, spot.z, 15, logs) && !insideMap(spot.x, spot.z, width, height, 6)) {
+      logs.push(makePropPlace(spot.x, spot.z, [0.9, 1.16], rng));
+    }
+  }
+}
+
+function pickForestRecipe(
+  field: number,
+  depth: DepthKind,
+  rng: () => number,
+): { trees: number; bushes: number; logs: number; spread: number; pine: number; minTree: number } {
+  const open = field < 0.34;
+  const dense = field > 0.62;
+  let recipe: { trees: number; bushes: number; logs: number; spread: number; pine: number; minTree: number };
+
+  if (open) {
+    recipe = {
+      trees: rng() < 0.42 ? 1 : 2,
+      bushes: rng() < 0.58 ? 1 + Math.floor(rng() * 2) : 0,
+      logs: rng() < 0.16 ? 1 : 0,
+      spread: 15 + rng() * 8,
+      pine: 0.08,
+      minTree: 12,
+    };
+  } else if (!dense) {
+    if (rng() < 0.4) {
+      recipe = {
+        trees: 2,
+        bushes: 1 + Math.floor(rng() * 2),
+        logs: rng() < 0.22 ? 1 : 0,
+        spread: 12,
+        pine: 0.1,
+        minTree: 9,
+      };
+    } else {
+      recipe = {
+        trees: 3,
+        bushes: 2 + Math.floor(rng() * 2),
+        logs: rng() < 0.28 ? 1 : 0,
+        spread: 14,
+        pine: 0.12,
+        minTree: 8,
+      };
+    }
+  } else if (rng() < 0.32) {
+    recipe = {
+      trees: rng() < 0.45 ? 2 : 1,
+      bushes: 3 + Math.floor(rng() * 3),
+      logs: rng() < 0.42 ? 1 : 0,
+      spread: 11,
+      pine: 0.06,
+      minTree: 8,
+    };
+  } else {
+    recipe = {
+      trees: 3 + Math.floor(rng() * 2),
+      bushes: 2 + Math.floor(rng() * 3),
+      logs: rng() < 0.34 ? 1 : 0,
+      spread: 13,
+      pine: 0.1,
+      minTree: 7,
+    };
+  }
+
+  if (depth === "near") {
+    recipe.pine = Math.min(recipe.pine, 0.08);
+  } else if (depth === "far") {
+    recipe.pine = Math.max(recipe.pine, 0.2);
+    recipe.bushes = Math.min(recipe.bushes, 2);
+  }
+  return recipe;
+}
+
+function groveSpot(
+  cx: number,
+  cz: number,
+  minDist: number,
+  maxDist: number,
+  width: number,
+  height: number,
+  rng: () => number,
+): { x: number; z: number } | null {
+  for (let i = 0; i < 7; i++) {
+    const ang = rng() * Math.PI * 2;
+    const dist = minDist + rng() * Math.max(0.001, maxDist - minDist);
+    const x = cx + Math.cos(ang) * dist;
+    const z = cz + Math.sin(ang) * dist;
+    if (inForestBelt(x, z, width, height)) {
+      return { x, z };
+    }
+  }
+  return inForestBelt(cx, cz, width, height) ? { x: cx, z: cz } : null;
 }
 
 function makePropPlace(x: number, z: number, scale: readonly [number, number], rng: () => number): Placement {
@@ -510,40 +659,6 @@ function inForestBelt(x: number, z: number, width: number, height: number): bool
     return false;
   }
   return x > -FOREST_EXTENT + 6 && z > -FOREST_EXTENT + 6 && x < width + FOREST_EXTENT - 6 && z < height + FOREST_EXTENT - 6;
-}
-
-function scatterForest(width: number, height: number, rng: () => number): Placement[] {
-  const placed: Placement[] = [];
-
-  const rings = [
-    { inner: 9, outer: 28, step: 78, skip: 0.22, pine: 0.16, minDist: 16, scale: [0.9, 1.12] as const },
-    { inner: 28, outer: 74, step: 36, skip: 0.1, pine: 0.07, minDist: 12, scale: [0.84, 1.18] as const },
-    { inner: 74, outer: FOREST_EXTENT - 6, step: 22, skip: 0.05, pine: 0.03, minDist: 10, scale: [0.92, 1.26] as const },
-  ];
-
-  for (const ring of rings) {
-    forEachSidePoint(width, height, ring.inner, ring.outer, ring.step, rng, (x, z) => {
-      if (rng() < ring.skip) {
-        return;
-      }
-      if (tooClose(x, z, ring.minDist, placed)) {
-        return;
-      }
-      const kind: Kind = rng() < ring.pine ? "pine" : rng() < 0.48 ? "a" : "b";
-      placed.push(makePlace(kind, x, z, ring.scale, rng));
-      if (ring.inner > 20 && rng() < 0.18) {
-        const ang = rng() * Math.PI * 2;
-        const dist = 7 + rng() * 9;
-        const cx = x + Math.cos(ang) * dist;
-        const cz = z + Math.sin(ang) * dist;
-        if (!insideMap(cx, cz, width, height, 4) && !tooClose(cx, cz, ring.minDist * 0.85, placed)) {
-          const other: Kind = kind === "a" ? "b" : "a";
-          placed.push(makePlace(other, cx, cz, ring.scale, rng));
-        }
-      }
-    });
-  }
-  return placed;
 }
 
 function makePlace(
@@ -648,4 +763,23 @@ function disposeTex(tex: THREE.Texture | null | undefined, keep: Set<THREE.Textu
   if (tex && !keep.has(tex)) {
     tex.dispose();
   }
+}
+
+function valueNoise(x: number, y: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy);
+  const b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1);
+  const d = hash2(ix + 1, iy + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+function hash2(ix: number, iy: number): number {
+  const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453;
+  return n - Math.floor(n);
 }

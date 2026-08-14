@@ -15,6 +15,7 @@ import {
 import { missionSummary } from "./sim/game";
 import { skinById } from "./profile";
 import { createForest } from "./view/forest";
+import { addBoundaryFence } from "./view/fence";
 import { addGroundSurfaces } from "./view/ground";
 import { createHorizonBackdrop } from "./view/horizon";
 import { createSky } from "./view/sky";
@@ -371,6 +372,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 function buildWorld(root: THREE.Group, state: GameState): void {
   const { pois, cover, houses, ramps } = state.world;
   addGroundSurfaces(root, state.world);
+  addBoundaryFence(root, state.world);
 
   const coverMat = new THREE.MeshLambertMaterial({ color: 0x4a4338 });
   for (const rect of cover) {

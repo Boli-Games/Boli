@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mulberry32 } from "../sim/rng";
 import type { House, Roof, World } from "../sim/types";
-import { loadNatureAssets, type NatureAssets } from "./forest";
+import { FOREST_EXTENT, loadNatureAssets, type NatureAssets } from "./forest";
 import { HORIZON_MARGIN } from "./horizon";
 
 const GRASS_TILE = 14.5;
@@ -14,6 +14,11 @@ const PATH_FADE = 5.4;
 const TUFT_SEED = 0x6ea55;
 const STONE_SEED = 0xc0bb1e;
 const NATURE_SEED = 0x51a11;
+const GRASS_STEP = 2.05;
+/** Same 3D tuft density through the near forest, so the playable wall has no grass seam. */
+const GRASS_FULL_OUT = 72;
+/** Noisy outer reach for tufts; stays inside the forest belt. */
+const GRASS_FAR_OUT = FOREST_EXTENT - 6;
 
 const GRASS_URL = "/textures/ground/grass.png";
 const DIRT_URL = "/textures/ground/dirt.png";
@@ -67,10 +72,10 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
 
   const dirtMat = makeOverlayMaterial(0xe4d2ae);
   const dirtGeo = buildCoverageGeometry(
-    -8,
-    -8,
-    world.width + 8,
-    world.height + 8,
+    -24,
+    -24,
+    world.width + 24,
+    world.height + 24,
     2.6,
     (x, z) => {
       const d = surfaces.dirt(x, z);
@@ -89,10 +94,10 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
 
   const cobbleMat = makeOverlayMaterial(0xd7e0b8);
   const cobbleGeo = buildCoverageGeometry(
-    -8,
-    -8,
-    world.width + 8,
-    world.height + 8,
+    -24,
+    -24,
+    world.width + 24,
+    world.height + 24,
     2,
     (x, z) => surfaces.path(x, z),
     COBBLE_Y,
@@ -456,15 +461,19 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
   const short: Stamp[] = [];
   const tall: Stamp[] = [];
   const leafy: Stamp[] = [];
-  const step = 2.05;
+  const step = GRASS_STEP;
+  const extent = GRASS_FAR_OUT + step * 6;
 
   let row = 0;
-  for (let z = 10; z < world.height - 10; z += step) {
+  for (let z = -extent; z < world.height + extent; z += step) {
     const xOff = (row % 2) * step * 0.5;
     row += 1;
-    for (let x = 10 + xOff; x < world.width - 10; x += step) {
+    for (let x = -extent + xOff; x < world.width + extent; x += step) {
       const px = x + (rng() - 0.5) * 1.55;
       const pz = z + (rng() - 0.5) * 1.55;
+      if (!keepVisualGrass(px, pz, world, rng)) {
+        continue;
+      }
       if (blockedSolid(world, px, pz) || inKeepClear(px, pz, 8)) {
         continue;
       }
@@ -489,13 +498,43 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
     side: THREE.DoubleSide,
     fog: true,
   });
-  const worldSphere = new THREE.Sphere(
-    new THREE.Vector3(world.width * 0.5, 0.8, world.height * 0.5),
-    Math.hypot(world.width, world.height) * 0.55,
+  const worldSphere = groundFieldSphere(world, 0.8);
+  addStamped(root, "grass-short", makeShortClump(), grassMat, short, 0.02, worldSphere, false, false);
+  addStamped(root, "grass-tall", makeTallClump(), grassMat, tall, 0.02, worldSphere, false, false);
+  addStamped(root, "grass-leafy", makeLeafyClump(), grassMat, leafy, 0.02, worldSphere, false, false);
+}
+
+function keepVisualGrass(x: number, z: number, world: World, rng: () => number): boolean {
+  const out = distOutsideRect(x, z, world.width, world.height);
+  if (out <= 0) {
+    return true;
+  }
+  const n =
+    (valueNoise(x * 0.016 + 5.7, z * 0.016 + 2.4) - 0.5) * 28 +
+    (valueNoise(x * 0.045 + 1.8, z * 0.045) - 0.5) * 12;
+  const reach = GRASS_FAR_OUT + n;
+  if (out > reach) {
+    return false;
+  }
+  if (out <= GRASS_FULL_OUT) {
+    return true;
+  }
+  const fade = smoothstep(GRASS_FULL_OUT, Math.max(GRASS_FULL_OUT + 10, reach), out);
+  return rng() > fade * fade * 0.58;
+}
+
+function distOutsideRect(x: number, z: number, w: number, h: number): number {
+  const dx = x < 0 ? -x : x > w ? x - w : 0;
+  const dz = z < 0 ? -z : z > h ? z - h : 0;
+  return Math.hypot(dx, dz);
+}
+
+function groundFieldSphere(world: World, y: number): THREE.Sphere {
+  const extra = FOREST_EXTENT + 24;
+  return new THREE.Sphere(
+    new THREE.Vector3(world.width * 0.5, y, world.height * 0.5),
+    Math.hypot(world.width * 0.5 + extra, world.height * 0.5 + extra),
   );
-  addStamped(root, "grass-short", makeShortClump(), grassMat, short, 0.02, worldSphere);
-  addStamped(root, "grass-tall", makeTallClump(), grassMat, tall, 0.02, worldSphere);
-  addStamped(root, "grass-leafy", makeLeafyClump(), grassMat, leafy, 0.02, worldSphere);
 }
 
 function grassStamp(
@@ -599,8 +638,8 @@ function addDirtPebbles(root: THREE.Group, world: World, surfaces: SurfaceFns): 
   const rng = mulberry32(STONE_SEED);
   const round: Stamp[] = [];
   const flat: Stamp[] = [];
-  for (let z = 14; z < world.height - 14; z += 7.2) {
-    for (let x = 14; x < world.width - 14; x += 7.2) {
+  for (let z = -10; z < world.height + 10; z += 7.2) {
+    for (let x = -10; x < world.width + 10; x += 7.2) {
       const px = x + (rng() - 0.5) * 6.4;
       const pz = z + (rng() - 0.5) * 6.4;
       const dirt = surfaces.dirt(px, pz);
@@ -628,11 +667,8 @@ function addDirtPebbles(root: THREE.Group, world: World, surfaces: SurfaceFns): 
     }
   }
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: true });
-  const sphere = new THREE.Sphere(
-    new THREE.Vector3(world.width * 0.5, 0.2, world.height * 0.5),
-    Math.hypot(world.width, world.height) * 0.55,
-  );
-  addStamped(root, "dirt-pebble-round", new THREE.DodecahedronGeometry(0.42, 0), mat, round, 0.04, sphere, true);
+  const sphere = groundFieldSphere(world, 0.2);
+  addStamped(root, "dirt-pebble-round", new THREE.DodecahedronGeometry(0.42, 0), mat, round, 0.04, sphere, true, true);
   addStamped(
     root,
     "dirt-pebble-flat",
@@ -641,6 +677,7 @@ function addDirtPebbles(root: THREE.Group, world: World, surfaces: SurfaceFns): 
     flat,
     0.05,
     sphere,
+    true,
     true,
   );
 }
@@ -689,7 +726,7 @@ function addPathStones(root: THREE.Group, world: World, surfaces: SurfaceFns): v
     new THREE.Vector3(world.width * 0.5, 0.15, world.height * 0.5),
     Math.hypot(world.width, world.height) * 0.55,
   );
-  addStamped(root, "path-paver", new THREE.BoxGeometry(1.35, 0.2, 1.05), mat, pavers, COBBLE_Y + 0.06, sphere, true);
+  addStamped(root, "path-paver", new THREE.BoxGeometry(1.35, 0.2, 1.05), mat, pavers, COBBLE_Y + 0.06, sphere, true, true);
   addStamped(
     root,
     "path-cobble",
@@ -698,6 +735,7 @@ function addPathStones(root: THREE.Group, world: World, surfaces: SurfaceFns): v
     cobbles,
     COBBLE_Y + 0.05,
     sphere,
+    true,
     true,
   );
   addStamped(
@@ -709,6 +747,7 @@ function addPathStones(root: THREE.Group, world: World, surfaces: SurfaceFns): v
     COBBLE_Y + 0.04,
     sphere,
     true,
+    true,
   );
 }
 
@@ -717,60 +756,25 @@ function addVillageNature(root: THREE.Group, world: World, surfaces: SurfaceFns,
   const treesA: Stamp[] = [];
   const treesB: Stamp[] = [];
   const bushes: Stamp[] = [];
+  const trees: Stamp[] = [];
+  const step = 50;
 
-  for (let z = 22; z < world.height - 22; z += 36) {
-    for (let x = 22; x < world.width - 22; x += 36) {
-      const px = x + (rng() - 0.5) * 22;
-      const pz = z + (rng() - 0.5) * 22;
-      if (!canPlaceNature(world, px, pz, surfaces, "tree")) {
-        continue;
-      }
+  for (let z = 26; z < world.height - 26; z += step) {
+    for (let x = 26; x < world.width - 26; x += step) {
+      const px = x + (rng() - 0.5) * 38;
+      const pz = z + (rng() - 0.5) * 38;
       const dens = natureDensity(world, px, pz, surfaces);
-      if (dens < 0.2 || rng() > dens * 0.14) {
+      if (dens < 0.16) {
         continue;
       }
-      const kind = rng();
-      const s = 0.22 + rng() * 0.12;
-      const stamp: Stamp = {
-        x: px,
-        z: pz,
-        yaw: rng() * Math.PI * 2,
-        sx: s * (0.92 + rng() * 0.14),
-        sy: s * (0.88 + rng() * 0.2),
-        sz: s * (0.92 + rng() * 0.14),
-      };
-      if (kind < 0.62) {
-        treesA.push(stamp);
-      } else {
-        treesB.push(stamp);
+      const field = valueNoise(px * 0.021 + 6.4, pz * 0.021 + 1.8);
+      if (rng() > dens * (0.14 + field * 0.26)) {
+        continue;
       }
-    }
-  }
-
-  if (assets.bush) {
-    for (let z = 16; z < world.height - 16; z += 16) {
-      for (let x = 16; x < world.width - 16; x += 16) {
-        const px = x + (rng() - 0.5) * 12;
-        const pz = z + (rng() - 0.5) * 12;
-        if (!canPlaceNature(world, px, pz, surfaces, "bush")) {
-          continue;
-        }
-        const dens = natureDensity(world, px, pz, surfaces);
-        const near = structProximity(world, px, pz);
-        const chance = near > 0.75 ? dens * 0.08 : dens * 0.16;
-        if (rng() > chance) {
-          continue;
-        }
-        const s = 0.52 + rng() * 0.34;
-        bushes.push({
-          x: px,
-          z: pz,
-          yaw: rng() * Math.PI * 2,
-          sx: s * (0.9 + rng() * 0.18),
-          sy: s * (0.82 + rng() * 0.28),
-          sz: s * (0.9 + rng() * 0.18),
-        });
+      if (stampTooClose(px, pz, 34, trees) || stampTooClose(px, pz, 22, bushes)) {
+        continue;
       }
+      plantVillageGrove(world, surfaces, px, pz, dens, rng, trees, treesA, treesB, bushes, !!assets.bush);
     }
   }
 
@@ -783,6 +787,129 @@ function addVillageNature(root: THREE.Group, world: World, surfaces: SurfaceFns,
   if (assets.bush) {
     addNatureStamped(root, "village-bush", assets.bush, bushes, sphere, false);
   }
+}
+
+function plantVillageGrove(
+  world: World,
+  surfaces: SurfaceFns,
+  cx: number,
+  cz: number,
+  dens: number,
+  rng: () => number,
+  trees: Stamp[],
+  treesA: Stamp[],
+  treesB: Stamp[],
+  bushes: Stamp[],
+  hasBush: boolean,
+): void {
+  const near = structProximity(world, cx, cz);
+  const edge = Math.min(cx, cz, world.width - cx, world.height - cz);
+  let treeN = 0;
+  let bushN = 0;
+  let spread = 8;
+
+  if (near > 0.72) {
+    treeN = rng() < 0.32 ? 1 : 0;
+    bushN = 2 + Math.floor(rng() * 3);
+    spread = 6.5;
+  } else if (edge < 70) {
+    treeN = 1 + (rng() < 0.5 ? 1 : 0);
+    bushN = 2 + Math.floor(rng() * 3);
+    spread = 10;
+  } else if (rng() < 0.3) {
+    treeN = 0;
+    bushN = 2 + Math.floor(rng() * 3);
+    spread = 6;
+  } else if (rng() < 0.72) {
+    treeN = 1;
+    bushN = 1 + Math.floor(rng() * 3);
+    spread = 8;
+  } else {
+    treeN = 2;
+    bushN = 1 + Math.floor(rng() * 2);
+    spread = 11;
+  }
+
+  if (dens < 0.22) {
+    treeN = Math.min(treeN, 1);
+    bushN = Math.min(bushN, 2);
+  }
+  if (!hasBush) {
+    bushN = 0;
+    treeN = Math.max(treeN, 1);
+  }
+
+  const planted: Stamp[] = [];
+  for (let i = 0; i < treeN; i++) {
+    const spot = villageSpot(cx, cz, i === 0 ? 0 : 4, spread, rng);
+    if (
+      !canPlaceNature(world, spot.x, spot.z, surfaces, "tree") ||
+      stampTooClose(spot.x, spot.z, 11, trees)
+    ) {
+      continue;
+    }
+    const s = 0.22 + rng() * 0.12;
+    const stamp: Stamp = {
+      x: spot.x,
+      z: spot.z,
+      yaw: rng() * Math.PI * 2,
+      sx: s * (0.92 + rng() * 0.14),
+      sy: s * (0.88 + rng() * 0.2),
+      sz: s * (0.92 + rng() * 0.14),
+    };
+    trees.push(stamp);
+    planted.push(stamp);
+    if (rng() < 0.62) {
+      treesA.push(stamp);
+    } else {
+      treesB.push(stamp);
+    }
+  }
+
+  const clumps = bushN <= 2 ? 1 : rng() < 0.4 ? 2 : 1;
+  let left = bushN;
+  for (let c = 0; c < clumps && left > 0; c++) {
+    const anchor = planted.length > 0 ? planted[Math.floor(rng() * planted.length)] : { x: cx, z: cz };
+    const hub = villageSpot(anchor.x, anchor.z, 2.4, 7.2, rng);
+    const n = c === clumps - 1 ? left : Math.max(2, Math.ceil(left / (clumps - c)));
+    for (let i = 0; i < n; i++) {
+      const spot = villageSpot(hub.x, hub.z, 1.2, 4.6, rng);
+      if (
+        !canPlaceNature(world, spot.x, spot.z, surfaces, "bush") ||
+        stampTooClose(spot.x, spot.z, 2.8, bushes)
+      ) {
+        continue;
+      }
+      const s = 0.5 + rng() * 0.4;
+      bushes.push({
+        x: spot.x,
+        z: spot.z,
+        yaw: rng() * Math.PI * 2,
+        sx: s * (0.88 + rng() * 0.22),
+        sy: s * (0.78 + rng() * 0.32),
+        sz: s * (0.88 + rng() * 0.22),
+      });
+    }
+    left -= n;
+  }
+}
+
+function villageSpot(cx: number, cz: number, minDist: number, maxDist: number, rng: () => number): { x: number; z: number } {
+  const ang = rng() * Math.PI * 2;
+  const dist = minDist + rng() * Math.max(0.001, maxDist - minDist);
+  return { x: cx + Math.cos(ang) * dist, z: cz + Math.sin(ang) * dist };
+}
+
+function stampTooClose(x: number, z: number, minDist: number, stamps: Stamp[]): boolean {
+  const min2 = minDist * minDist;
+  for (const stamp of stamps) {
+    const dx = stamp.x - x;
+    const dz = stamp.z - z;
+    if (dx * dx + dz * dz < min2) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function natureDensity(world: World, x: number, z: number, surfaces: SurfaceFns): number {
@@ -887,6 +1014,7 @@ function addStamped(
   y: number,
   sphere: THREE.Sphere,
   instanceColor = false,
+  receiveShadow = false,
 ): void {
   if (stamps.length === 0) {
     geo.dispose();
@@ -896,7 +1024,7 @@ function addStamped(
   mesh.name = name;
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
   mesh.castShadow = false;
-  mesh.receiveShadow = true;
+  mesh.receiveShadow = receiveShadow;
   mesh.frustumCulled = true;
   mesh.boundingSphere = sphere;
   const dummy = new THREE.Object3D();
