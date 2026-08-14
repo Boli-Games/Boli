@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { worldHour, worldMinuteFromTimeLeft } from "../sim/worldClock";
 import { getQuality } from "../quality";
 
-/** Night holds for most of the round; dawn only arrives as the clock runs down. */
+/** Round lighting follows world hour. Default round is noon → late afternoon. */
 const DAWN_START = 0.02;
 
 /**
@@ -189,8 +189,7 @@ export type SkyRig = {
 };
 
 /**
- * Atmosphere only. Driven by `timeLeft`, never by round phase —
- * a hunter win at 8:00 keeps the night sky.
+ * Atmosphere only. Driven by world hour, never by round phase.
  */
 export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   const fog = new THREE.Fog(
@@ -329,9 +328,9 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   };
 }
 
-/** 0 = night, 1 = day. Driven only by world hour. */
-export function skyAmount(timeLeft: number): number {
-  return cycleAmount(worldHour(worldMinuteFromTimeLeft(timeLeft)));
+/** 0 = night, 1 = day. Driven by world hour (falls back to the round clock). */
+export function skyAmount(timeLeft: number, worldMinute?: number): number {
+  return cycleAmount(worldHour(worldMinute ?? worldMinuteFromTimeLeft(timeLeft)));
 }
 
 /** Same 0–1 day blend as sky lighting, from a world hour (0–24). */

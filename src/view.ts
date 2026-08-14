@@ -180,8 +180,6 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   const camTo = new THREE.Vector3();
   const camDir = new THREE.Vector3();
   const hunterAim = new THREE.Vector3();
-  const raycaster = new THREE.Raycaster();
-  const centerNdc = new THREE.Vector2(0, 0);
 
   const sky = createSky(scene, fpsCamera);
   const forest = createForest(scene);
@@ -197,6 +195,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   let hurtUntil = 0;
   let lastState: GameState | null = null;
   let lastAnimAt = performance.now();
+  let lastThird = true;
 
   void preloadHouseSurfaces().catch(() => undefined);
   void preloadBoliCharacters()
@@ -352,6 +351,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     const activeHunter =
       hunterIndex <= 0 ? state.hunter : (state.extraHunters[hunterIndex - 1] ?? state.hunter);
     const third = opts.cameraMode !== "firstPerson";
+    lastThird = third;
 
     const blobPoses: BlobShadowPose[] = [];
     for (const entity of state.entities) {
@@ -480,46 +480,56 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     for (const mesh of extraMeshes) {
       tickBoliAnimation(mesh, animDt);
     }
-    blobs.sync(blobPoses, skyAmount(state.timeLeft));
+    blobs.sync(blobPoses, skyAmount(state.timeLeft, state.worldMinute));
     tickGrassLod(fpsCamera.position.x, fpsCamera.position.z);
     renderer.render(scene, fpsCamera);
     tickPerfOverlay(renderer);
   }
 
-  function pickAimedEntity(state: GameState, hunter: Hunter, _yaw: number, _pitch: number): Entity | null {
-    const targets: THREE.Object3D[] = [];
+  function pickAimedEntity(state: GameState, hunter: Hunter, yaw: number, pitch: number): Entity | null {
+    const crouch = Boolean(hunter.crouch);
+    placeCamera(
+      hunter.x,
+      hunter.y,
+      hunter.z,
+      yaw,
+      pitch,
+      hunter.walkTime,
+      hunter.state === "WANDER",
+      crouch,
+      lastThird,
+    );
+    fpsCamera.updateMatrixWorld(true);
+    fpsCamera.getWorldPosition(camFrom);
+    fpsCamera.getWorldDirection(camDir);
+    hunterAim.set(hunter.x, hunter.z + (crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight), hunter.y);
+    const camToEye = hunterAim.distanceTo(camFrom);
+    const near = lastThird ? Math.max(0.4, camToEye - 3) : 0.4;
+    const far = camToEye + ROUND.shotRange;
+    const hitR = RHYTHM.radius * 1.25;
+    const hitR2 = hitR * hitR;
+    let best: Entity | null = null;
+    let bestT = far;
     for (const entity of state.entities) {
-      const mesh = boliMeshes.get(entity.id);
-      if (!mesh || entity.downed) {
+      if (entity.downed) {
         continue;
       }
-      syncPerson(mesh, entity, false, 0, Boolean(entity.crouch));
-      mesh.updateMatrixWorld(true);
-      targets.push(mesh);
+      const dx = entity.x - camFrom.x;
+      const dy = entity.z + 8 - camFrom.y;
+      const dz = entity.y - camFrom.z;
+      const along = dx * camDir.x + dy * camDir.y + dz * camDir.z;
+      if (along < near || along > far) {
+        continue;
+      }
+      const ox = dx - camDir.x * along;
+      const oy = dy - camDir.y * along;
+      const oz = dz - camDir.z * along;
+      if (ox * ox + oy * oy + oz * oz <= hitR2 && along < bestT) {
+        bestT = along;
+        best = entity;
+      }
     }
-    fpsCamera.updateMatrixWorld();
-    hunterAim.set(hunter.x, hunter.z + (hunter.crouch ? VIEW.crouchEyeHeight : VIEW.eyeHeight), hunter.y);
-    raycaster.setFromCamera(centerNdc, fpsCamera);
-    raycaster.far = hunterAim.distanceTo(fpsCamera.position) + ROUND.shotRange;
-    const hits = raycaster.intersectObjects(targets, true);
-    const first = hits[0];
-    if (!first) {
-      return null;
-    }
-    let node: THREE.Object3D | null = first.object;
-    while (node && node.userData.entityId === undefined) {
-      node = node.parent;
-    }
-    const id = node?.userData.entityId as string | undefined;
-    if (!id) {
-      return null;
-    }
-    const entity = state.entities.find((item) => item.id === id) ?? null;
-    if (!entity) {
-      return null;
-    }
-    const reach = Math.hypot(entity.x - hunter.x, entity.y - hunter.y, entity.z + 8 - hunterAim.y);
-    return reach <= ROUND.shotRange ? entity : null;
+    return best;
   }
 
   resize();
@@ -917,10 +927,13 @@ function createShotFx(
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.28, -9.05);
+  viewmodel.add(muzzle);
+
   const fpFlash = makeMuzzleStar();
-  fpFlash.position.set(0, 0.28, -9.1);
   fpFlash.visible = false;
-  viewmodel.add(fpFlash);
+  camera.add(fpFlash);
 
   const fpLight = new THREE.PointLight(0xffc56a, 0, 18, 2);
   fpLight.position.set(0.08, -0.02, -0.7);
@@ -930,11 +943,12 @@ function createShotFx(
   scene.add(worldLight);
 
   const worldFlash = makeMuzzleStar();
-  worldFlash.scale.setScalar(0.12);
+  worldFlash.scale.setScalar(0.55);
   worldFlash.visible = false;
   scene.add(worldFlash);
 
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.18, 1, 6, 1, true), beamMat);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.78, 1, 6, 1, true), beamMat);
+  beam.renderOrder = 8;
   beam.visible = false;
   scene.add(beam);
 
@@ -961,20 +975,22 @@ function createShotFx(
   let beamLife = 0;
   let fxLast = performance.now();
 
-  function originFromCamera(): THREE.Vector3 {
+  function originFromCamera(firstPerson: boolean): THREE.Vector3 {
     const origin = new THREE.Vector3();
     camera.getWorldPosition(origin);
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
-    origin.addScaledVector(dir, 1.15);
-    origin.y -= 0.12;
+    origin.addScaledVector(dir, firstPerson ? 1.15 : Math.max(8, VIEW.tpDistance - 8));
+    if (firstPerson) {
+      origin.y -= 0.12;
+    }
     return origin;
   }
 
   function play(opts: { firstPerson: boolean; hitX: number; hitY: number; hitZ: number; hit: boolean }): void {
     localUntil = performance.now() + 280;
     const hit = new THREE.Vector3(opts.hitX, opts.hitZ, opts.hitY);
-    burst(originFromCamera(), hit, opts.firstPerson, opts.hit);
+    burst(originFromCamera(opts.firstPerson), hit, opts.firstPerson, opts.hit);
   }
 
   function consume(state: GameState): void {
@@ -991,9 +1007,16 @@ function createShotFx(
     burst(origin, hit, false, event.hit);
   }
 
+  const _muzzleWorld = new THREE.Vector3();
+  const fpFlashScale = 0.042;
+
   function burst(origin: THREE.Vector3, hit: THREE.Vector3, firstPerson: boolean, didHit: boolean): void {
     if (firstPerson) {
       fpFlashLife = 0.09;
+      muzzle.updateWorldMatrix(true, false);
+      camera.worldToLocal(muzzle.getWorldPosition(_muzzleWorld));
+      fpFlash.position.copy(_muzzleWorld);
+      fpFlash.scale.setScalar(fpFlashScale);
       fpFlash.visible = true;
       fpFlash.rotation.z = Math.random() * Math.PI;
       fpLight.intensity = 7.5;
@@ -1038,7 +1061,7 @@ function createShotFx(
       const mat = sprite.material as THREE.SpriteMaterial;
       mat.color.setHex(Math.random() > 0.35 ? 0xffe08a : 0xff9a3a);
       mat.opacity = 1;
-      const size = didHit ? 1.1 + Math.random() * 1.6 : 0.7 + Math.random();
+      const size = didHit ? 2.2 + Math.random() * 2.4 : 1.3 + Math.random() * 1.4;
       sprite.scale.setScalar(size);
       sparks.push({
         sprite,
@@ -1060,7 +1083,7 @@ function createShotFx(
       fpFlashLife -= dt;
       const k = Math.max(0, fpFlashLife / 0.09);
       fpFlash.visible = k > 0;
-      fpFlash.scale.setScalar(0.8 + (1 - k) * 1.4);
+      fpFlash.scale.setScalar(fpFlashScale * (0.85 + (1 - k) * 1.35));
       fpFlash.traverse((node) => {
         const mesh = node as THREE.Mesh;
         const mat = mesh.material as THREE.MeshBasicMaterial | undefined;
@@ -1078,7 +1101,7 @@ function createShotFx(
       worldFlashLife -= dt;
       const k = Math.max(0, worldFlashLife / 0.12);
       worldFlash.visible = k > 0;
-      worldFlash.scale.setScalar(0.08 + (1 - k) * 0.2);
+      worldFlash.scale.setScalar(0.4 + (1 - k) * 0.55);
       worldFlash.traverse((node) => {
         const mesh = node as THREE.Mesh;
         const mat = mesh.material as THREE.MeshBasicMaterial | undefined;
@@ -1359,10 +1382,7 @@ function slotsFromRatio(ratio: number, slots: number): number {
 }
 
 function ammoSlots(ammo: number): number {
-  if (ammo <= 0) {
-    return 0;
-  }
-  return Math.min(AMMO_SLOTS, Math.ceil(ammo / (ROUND.maxShells / AMMO_SLOTS)));
+  return Math.max(0, Math.min(AMMO_SLOTS, ammo));
 }
 
 function presentBanner(text: string): string {

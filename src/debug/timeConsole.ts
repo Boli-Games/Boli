@@ -1,7 +1,6 @@
 import { setDebugClockHook } from "../sim/debugClock";
 import { type GameState } from "../sim/types";
 import {
-  DAWN_MINUTES,
   timeLeftFromWorldMinute,
   worldMinuteFromTimeLeft,
   wrapMinute,
@@ -307,7 +306,7 @@ function applyWorldMinute(state: GameState, next: number): string {
   const minute = wrapMinute(next);
   state.worldMinute = minute;
   state.timeLeft = timeLeftFromWorldMinute(minute);
-  if (state.timeLeft <= 0 || minute >= DAWN_MINUTES) {
+  if (state.timeLeft <= 0) {
     clock.holdWin = true;
     clock.paused = true;
   } else {

@@ -4,7 +4,7 @@ import { createHunter, tickHunterAi, tickHunterControlled, type HunterInput } fr
 import { tickInfiltrator, type InfiltratorInput } from "./infiltrator";
 import type { RoundReport } from "../net/championship";
 import { RHYTHM, ROUND, VIEW, type Entity, type GameState, type Hunter } from "./types";
-import { worldMinuteFromTimeLeft, wrapMinute, WORLD_MINUTES_PER_SECOND } from "./worldClock";
+import { ROUND_START_MINUTE, worldMinuteFromTimeLeft, wrapMinute, WORLD_MINUTES_PER_SECOND } from "./worldClock";
 import { createAmmoCrates, createObjectives, createWorld, randomWalkablePoint, sampleHeight } from "./world";
 
 export type CreateGameOpts = {
@@ -91,7 +91,7 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
     extraHunters: [],
     objectives: createObjectives(),
     timeLeft: ROUND.duration,
-    worldMinute: 0,
+    worldMinute: ROUND_START_MINUTE,
     phase: "PLAYING",
     revealTtl: 0,
     shotKick: 0,
