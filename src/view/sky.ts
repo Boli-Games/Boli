@@ -133,7 +133,7 @@ const DUSK_END_HOUR = 19.5;
 const _sunDir = new THREE.Vector3();
 const _moonDir = new THREE.Vector3();
 const _sunLightPos = new THREE.Vector3();
-const _moonLightPos = new THREE.Vector3();
+const _shadowFocus = new THREE.Vector3();
 /** Glow radius as a multiple of the moon body (~0.66 of the texture). */
 const MOON_HALO_SCALE = 2.9;
 /** 0–1 mix of the halo into the night sky. Less than the sun. */
@@ -202,11 +202,15 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   const moonLight = new THREE.DirectionalLight(NIGHT.moon, NIGHT.moonLight);
   moonLight.position.copy(MOON_POS);
   scene.add(moonLight);
+  scene.add(moonLight.target);
+  setupTreeShadows(moonLight);
 
   const sunLight = new THREE.DirectionalLight(DAWN.sun, NIGHT.sunLight);
   placeCelestial(0, _sunDir, _moonDir);
   sunLight.position.copy(_sunLightPos.copy(_sunDir).multiplyScalar(420));
   scene.add(sunLight);
+  scene.add(sunLight.target);
+  setupTreeShadows(sunLight);
 
   const fill = new THREE.AmbientLight(NIGHT.fill, NIGHT.fillLight);
   scene.add(fill);
@@ -265,11 +269,13 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
 
       moonLight.color.copy(_moon);
       moonLight.intensity = 0.08 + 0.5 * (1 - t);
-      moonLight.position.copy(_moonLightPos.copy(_moonDir).multiplyScalar(420));
+      aimTreeShadows(moonLight, camera.position, _moonDir);
+      moonLight.castShadow = t < 0.18;
 
       sunLight.color.copy(_sun);
       sunLight.intensity = 1.18 * t;
-      sunLight.position.copy(_sunLightPos.copy(_sunDir).multiplyScalar(420));
+      aimTreeShadows(sunLight, camera.position, _sunDir);
+      sunLight.castShadow = t >= 0.18;
 
       fill.color.copy(_fill);
       fill.intensity = mix(NIGHT.fillLight, DAWN.fillLight, t);
@@ -821,6 +827,30 @@ function drawMoon(): HTMLCanvasElement {
   ctx.fill();
 
   return canvas;
+}
+
+function setupTreeShadows(light: THREE.DirectionalLight): void {
+  light.castShadow = true;
+  light.shadow.mapSize.set(2048, 2048);
+  light.shadow.bias = -0.0012;
+  light.shadow.normalBias = 1.4;
+  const cam = light.shadow.camera;
+  const extent = 220;
+  cam.left = -extent;
+  cam.right = extent;
+  cam.top = extent;
+  cam.bottom = -extent;
+  cam.near = 10;
+  cam.far = 720;
+  cam.updateProjectionMatrix();
+}
+
+function aimTreeShadows(light: THREE.DirectionalLight, origin: THREE.Vector3, dir: THREE.Vector3): void {
+  _shadowFocus.copy(origin);
+  _shadowFocus.y = 0;
+  light.target.position.copy(_shadowFocus);
+  light.position.copy(_shadowFocus).addScaledVector(dir, 380);
+  light.target.updateMatrixWorld();
 }
 
 function mix(a: number, b: number, t: number): number {

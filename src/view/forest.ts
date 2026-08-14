@@ -20,13 +20,17 @@ const PINE_URL = "/models/trees/cartoon-tree.glb";
 const LOG_URL = "/models/trees/cartoon-fallen-tree.glb";
 const LOG_PARTS = ["log_main_99", "log_inside.001_19", "log_inside_01_21", "moss_72"];
 
-type Kind = "a" | "b" | "pine";
+export type NatureTreeKind = "a" | "b" | "pine";
 
-type Prototype = {
+type Kind = NatureTreeKind;
+
+export type NaturePrototype = {
   geometry: THREE.BufferGeometry;
   material: THREE.MeshLambertMaterial;
   height: number;
 };
+
+type Prototype = NaturePrototype;
 
 type Placement = {
   kind: Kind;
@@ -42,11 +46,22 @@ export type ForestRig = {
   tick: (paused: boolean) => void;
 };
 
-type ForestAssets = {
+export type NatureAssets = {
   trees: Record<Kind, Prototype>;
-  bush: Prototype;
+  bush: Prototype | null;
   logParts: Prototype[];
 };
+
+type ForestAssets = NatureAssets;
+
+let naturePromise: Promise<NatureAssets> | null = null;
+
+export function loadNatureAssets(): Promise<NatureAssets> {
+  if (!naturePromise) {
+    naturePromise = loadPrototypes();
+  }
+  return naturePromise;
+}
 
 export function createForest(scene: THREE.Scene): ForestRig {
   const root = new THREE.Group();
@@ -66,7 +81,7 @@ export function createForest(scene: THREE.Scene): ForestRig {
     pending = { width, height };
     if (!loadStarted) {
       loadStarted = true;
-      void loadPrototypes()
+      void loadNatureAssets()
         .then((loaded) => {
           assets = loaded;
           if (pending) {
@@ -101,18 +116,26 @@ export function createForest(scene: THREE.Scene): ForestRig {
       root.add(meshes[kind]!);
     });
 
-    const bushes = scatterBushes(width, height, placements, rng);
-    if (bushes.length > 0) {
-      bushMesh = makeInstancedProp(assets.bush, bushes);
-      root.add(bushMesh);
-    }
-    const logs = scatterLogs(width, height, placements, rng);
-    if (logs.length > 0) {
-      for (const part of assets.logParts) {
-        const mesh = makeInstancedProp(part, logs);
-        logMeshes.push(mesh);
-        root.add(mesh);
+    try {
+      const bushes = assets.bush ? scatterBushes(width, height, placements, rng) : [];
+      if (assets.bush && bushes.length > 0) {
+        bushMesh = makeInstancedProp(assets.bush, bushes);
+        root.add(bushMesh);
       }
+    } catch (err) {
+      console.warn("No se pudieron colocar los arbustos:", err);
+    }
+    try {
+      const logs = assets.logParts.length > 0 ? scatterLogs(width, height, placements, rng) : [];
+      if (logs.length > 0) {
+        for (const part of assets.logParts) {
+          const mesh = makeInstancedProp(part, logs);
+          logMeshes.push(mesh);
+          root.add(mesh);
+        }
+      }
+    } catch (err) {
+      console.warn("No se pudieron colocar los troncos:", err);
     }
   }
 
@@ -166,27 +189,42 @@ export function createForest(scene: THREE.Scene): ForestRig {
 
 async function loadPrototypes(): Promise<ForestAssets> {
   const loader = new GLTFLoader();
-  const [forestGltf, pineGltf, logGltf] = await Promise.all([
+  const [forestGltf, pineGltf] = await Promise.all([
     loader.loadAsync(FOREST_A_URL),
     loader.loadAsync(PINE_URL),
-    loader.loadAsync(LOG_URL),
   ]);
 
   const treeA = extractNamed(forestGltf.scene, "polySurface7", HEIGHT_A);
   const treeB = extractNamed(forestGltf.scene, "polySurface11", HEIGHT_B);
-  const bush = extractNamed(forestGltf.scene, "pCube17", HEIGHT_BUSH, false);
   const pine = extractRoot(pineGltf.scene, HEIGHT_PINE);
-  const logParts = bakeNamedParts(logGltf.scene, LOG_PARTS, LOG_LENGTH);
 
-  disposeScene(forestGltf.scene, keepTextures(treeA.material, treeB.material, bush.material));
+  let bush: Prototype | null = null;
+  try {
+    bush = extractNamed(forestGltf.scene, "pCube17", HEIGHT_BUSH, false);
+  } catch (err) {
+    console.warn("No se pudo extraer el arbusto del bosque:", err);
+  }
+
+  disposeScene(
+    forestGltf.scene,
+    keepTextures(treeA.material, treeB.material, ...(bush ? [bush.material] : [])),
+  );
   disposeScene(pineGltf.scene, keepTextures(pine.material));
-  disposeScene(logGltf.scene, keepTextures(...logParts.map((part) => part.material)));
+
+  let logParts: Prototype[] = [];
+  try {
+    const logGltf = await loader.loadAsync(LOG_URL);
+    logParts = bakeNamedParts(logGltf.scene, LOG_PARTS, LOG_LENGTH);
+    disposeScene(logGltf.scene, keepTextures(...logParts.map((part) => part.material)));
+  } catch (err) {
+    console.warn("No se pudieron cargar los troncos caídos:", err);
+  }
 
   return { trees: { a: treeA, b: treeB, pine }, bush, logParts };
 }
 
 function extractNamed(scene: THREE.Object3D, name: string, height: number, wind = true): Prototype {
-  const node = scene.getObjectByName(name);
+  const node = findNode(scene, name);
   if (!node) {
     throw new Error(`No se encontró el prototipo ${name}`);
   }
@@ -309,6 +347,8 @@ function makeInstanced(proto: Prototype, list: Placement[]): THREE.InstancedMesh
   geo.setAttribute("windPhase", new THREE.InstancedBufferAttribute(phases, 1));
   mesh.instanceMatrix.needsUpdate = true;
   mesh.frustumCulled = false;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   return mesh;
 }
 
@@ -333,9 +373,10 @@ function bakeNamedParts(scene: THREE.Object3D, names: string[], targetSpan: numb
   scene.updateWorldMatrix(true, true);
   const items: { geo: THREE.BufferGeometry; src: THREE.Material }[] = [];
   for (const name of names) {
-    const node = scene.getObjectByName(name);
+    const node = findNode(scene, name);
     if (!node) {
-      throw new Error(`No se encontró el prototipo ${name}`);
+      console.warn(`No se encontró la parte del tronco: ${name}`);
+      continue;
     }
     node.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -359,39 +400,43 @@ function bakeNamedParts(scene: THREE.Object3D, names: string[], targetSpan: numb
       box.union(item.geo.boundingBox);
     }
   }
+  if (box.isEmpty()) {
+    throw new Error("El tronco no tiene bounding box");
+  }
   const size = new THREE.Vector3();
   box.getSize(size);
   const midX = (box.min.x + box.max.x) * 0.5;
   const midZ = (box.min.z + box.max.z) * 0.5;
   const span = Math.max(size.x, size.z, 0.001);
   const scale = targetSpan / span;
+  const offset = new THREE.Matrix4()
+    .makeScale(scale, scale, scale)
+    .multiply(new THREE.Matrix4().makeTranslation(-midX, -box.min.y, -midZ));
   for (const item of items) {
-    item.geo.translate(-midX, -box.min.y, -midZ);
-    item.geo.scale(scale, scale, scale);
+    item.geo.applyMatrix4(offset);
     item.geo.computeBoundingBox();
     item.geo.computeBoundingSphere();
   }
 
-  const grouped = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  for (const item of items) {
-    const list = grouped.get(item.src) ?? [];
-    list.push(item.geo);
-    grouped.set(item.src, list);
-  }
   const parts: Prototype[] = [];
-  for (const [src, geos] of grouped) {
-    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
-    if (!merged) {
-      throw new Error("No se pudo combinar una parte del tronco");
-    }
-    if (geos.length > 1) {
-      for (const geo of geos) {
-        geo.dispose();
-      }
-    }
-    parts.push({ geometry: merged, material: toLambert(src), height: size.y * scale });
+  for (const item of items) {
+    parts.push({ geometry: item.geo, material: toLambert(item.src), height: size.y * scale });
   }
   return parts;
+}
+
+function findNode(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+  const exact = root.getObjectByName(name);
+  if (exact) {
+    return exact;
+  }
+  let found: THREE.Object3D | undefined;
+  root.traverse((obj) => {
+    if (!found && obj.name === name) {
+      found = obj;
+    }
+  });
+  return found;
 }
 
 function scatterBushes(width: number, height: number, trees: Placement[], rng: () => number): Placement[] {
