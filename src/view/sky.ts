@@ -20,6 +20,10 @@ const FOG = {
   dawnFar: 880,
   dawnStrength: 0.4,
   dawnColor: 0xf0c8a8,
+  dayNear: 280,
+  dayFar: 940,
+  dayStrength: 0.3,
+  dayColor: 0xb0d0e4,
 };
 
 const NIGHT = {
@@ -33,8 +37,8 @@ const NIGHT = {
   sun: new THREE.Color(0x8aa0c8),
   fill: new THREE.Color(0x12161f),
   hemi: 0.42,
-  moonLight: 0.38,
-  sunLight: 0.08,
+  moonLight: 0.5,
+  sunLight: 0,
   fillLight: 0.1,
   stars: 1,
   moonAlpha: 1,
@@ -51,13 +55,28 @@ const DAWN = {
   moon: new THREE.Color(0xf0e4d4),
   sun: new THREE.Color(0xffd7a8),
   fill: new THREE.Color(0x6a4a3a),
-  hemi: 0.78,
+  hemi: 0.64,
   moonLight: 0.04,
-  sunLight: 0.72,
-  fillLight: 0.28,
+  sunLight: 0.88,
+  fillLight: 0.2,
   stars: 0,
   moonAlpha: 0.08,
   sunAlpha: 1,
+};
+
+/** Noon lighting. Cooler and clearer than DAWN — 12:00 must not read as sunrise. */
+const DAY = {
+  fog: new THREE.Color(FOG.dayColor),
+  hemiSky: new THREE.Color(0x7eb8e8),
+  hemiGround: new THREE.Color(0x4a5c38),
+  moon: new THREE.Color(0xe8eef6),
+  sun: new THREE.Color(0xfff1c4),
+  fill: new THREE.Color(0x4d6270),
+  hemi: 0.6,
+  moonLight: 0,
+  sunLight: 1.02,
+  fillLight: 0.15,
+  stars: 0,
 };
 
 /** Night sky + cloud stops (t = 0). Tweak these for the dark end of the blend. */
@@ -128,7 +147,9 @@ const SUN_RAD = 0.138;
 const SUNRISE_HOUR = DAWN_START * 6;
 const SUNSET_HOUR = 18;
 const NOON_HOUR = 12;
-/** Dusk lighting/body fade ends here — same window as `dayAmount`. */
+/** Golden hour begins here so 18:00 already reads as dusk, not noon. */
+const DUSK_START_HOUR = 17;
+/** Dusk lighting/body fade ends here — same window as `cycleAmount`. */
 const DUSK_END_HOUR = 19.5;
 const _sunDir = new THREE.Vector3();
 const _moonDir = new THREE.Vector3();
@@ -146,15 +167,20 @@ const SUN_PEAK_ELEV = 0.42;
 const MOON_PEAK_ELEV = 0.25;
 const STAR_SPIN = 0.00011;
 
-const _zenith = new THREE.Color();
-const _horizon = new THREE.Color();
-const _glow = new THREE.Color();
 const _fog = new THREE.Color();
 const _hemiSky = new THREE.Color();
 const _hemiGround = new THREE.Color();
 const _moon = new THREE.Color();
 const _sun = new THREE.Color();
 const _fill = new THREE.Color();
+let _hemi = NIGHT.hemi;
+let _fillLight = NIGHT.fillLight;
+let _sunLight = NIGHT.sunLight;
+let _moonLight = NIGHT.moonLight;
+let _stars = NIGHT.stars;
+let _fogNear = FOG.nightNear;
+let _fogFar = FOG.nightFar;
+let _fogStrength = FOG.nightStrength;
 
 export type SkyRig = {
   update: (timeLeft: number, worldMinute?: number) => void;
@@ -224,20 +250,17 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       root.position.copy(camera.position);
       const minute = worldMinute ?? worldMinuteFromTimeLeft(timeLeft);
       const hour = worldHour(minute);
-      const t = skyAmountFromMinute(minute);
+      const t = cycleAmount(hour);
       placeCelestial(hour, _sunDir, _moonDir);
       const elapsed = (performance.now() - started) * 0.001;
-      mixPalette(t);
+      mixLighting(t);
       mixSkyDomeColors(t);
 
       mixFogColor(t);
       background.copy(_fog);
       fog.color.copy(_fog);
-      const near = mix(FOG.nightNear, FOG.dawnNear, t);
-      const far = mix(FOG.nightFar, FOG.dawnFar, t);
-      const strength = mix(FOG.nightStrength, FOG.dawnStrength, t);
-      fog.near = near;
-      fog.far = fogFarFor(near, far, strength);
+      fog.near = _fogNear;
+      fog.far = fogFarFor(_fogNear, _fogFar, _fogStrength);
 
       // Dome gradient + clouds follow the same `t` as lighting (time console / world clock).
       uniforms.zenith.value.copy(_skyZenith);
@@ -257,7 +280,6 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       uniforms.sunColor.value.copy(_sun);
       uniforms.sunDir.value.copy(_sunDir);
       uniforms.moonDir.value.copy(_moonDir);
-      // Bodies are mutually exclusive; lighting still follows dayAmount (`t`).
       const bodies = celestialBodyAlpha(hour);
       uniforms.sunAlpha.value = bodies.sun;
       uniforms.moonAlpha.value = bodies.moon;
@@ -265,24 +287,26 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
 
       hemi.color.copy(_hemiSky);
       hemi.groundColor.copy(_hemiGround);
-      hemi.intensity = mix(NIGHT.hemi, DAWN.hemi, t);
+      hemi.intensity = _hemi;
 
       moonLight.color.copy(_moon);
-      moonLight.intensity = 0.08 + 0.5 * (1 - t);
+      moonLight.intensity = _moonLight * bodies.moon;
       aimTreeShadows(moonLight, camera.position, _moonDir);
-      moonLight.castShadow = t < 0.18;
 
       sunLight.color.copy(_sun);
-      sunLight.intensity = 1.18 * t;
+      sunLight.intensity = _sunLight * bodies.sun;
       aimTreeShadows(sunLight, camera.position, _sunDir);
-      sunLight.castShadow = t >= 0.18;
+
+      const sunOwnsShadow = bodies.sun >= bodies.moon;
+      sunLight.castShadow = sunOwnsShadow;
+      moonLight.castShadow = !sunOwnsShadow;
 
       fill.color.copy(_fill);
-      fill.intensity = mix(NIGHT.fillLight, DAWN.fillLight, t);
+      fill.intensity = _fillLight;
 
       starField.rotation.y = elapsed * STAR_SPIN;
       starField.rotation.z = elapsed * STAR_SPIN * 0.28;
-      const starOpacity = mix(NIGHT.stars, DAWN.stars, t);
+      const starOpacity = _stars;
       starField.visible = starOpacity > 0.02;
       starField.traverse((child) => {
         const mat = (child as THREE.Points).material;
@@ -294,28 +318,24 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   };
 }
 
-/** 0 = night (round start), 1 = dawn (timer empty). */
+/** 0 = night, 1 = day. Driven only by world hour. */
 export function skyAmount(timeLeft: number): number {
-  return skyAmountFromMinute(worldMinuteFromTimeLeft(timeLeft));
-}
-
-function skyAmountFromMinute(minute: number): number {
-  return dayAmount(worldHour(minute));
+  return cycleAmount(worldHour(worldMinuteFromTimeLeft(timeLeft)));
 }
 
 /**
- * Lighting / sky blend factor (0 night → 1 day). Not used for body visibility —
- * sun and moon alphas are mutually exclusive via `celestialBodyAlpha`.
- * Dawn: DAWN_START→06:00. Day: 06:00–18:00. Dusk: 18:00–19:30.
+ * Lighting / sky blend (0 night → 1 day). Same `t` for dome, fog, hemi, fill.
+ * Sun/moon key lights use `celestialBodyAlpha` so only one dominates.
+ * Dawn: DAWN_START→06:00. Day: 06:00–17:00. Dusk: 17:00–19:30.
  */
-function dayAmount(hour: number): number {
+function cycleAmount(hour: number): number {
   if (hour <= 6) {
     return smoothstep(DAWN_START, 1, hour / 6);
   }
-  if (hour < SUNSET_HOUR) {
+  if (hour < DUSK_START_HOUR) {
     return 1;
   }
-  return 1 - smoothstep(SUNSET_HOUR, DUSK_END_HOUR, hour);
+  return 1 - smoothstep(DUSK_START_HOUR, DUSK_END_HOUR, hour);
 }
 
 /**
@@ -352,7 +372,7 @@ function sunElevation(hour: number): number {
   if (hour >= SUNRISE_HOUR && hour <= NOON_HOUR) {
     return smoothstep(SUNRISE_HOUR, NOON_HOUR, hour);
   }
-  if (hour > NOON_HOUR && hour < SUNSET_HOUR) {
+  if (hour > NOON_HOUR && hour <= SUNSET_HOUR) {
     return 1 - smoothstep(NOON_HOUR, SUNSET_HOUR, hour);
   }
   return -0.18;
@@ -386,21 +406,26 @@ function dirOnArc(elevation: number, travel: number, peak: number, out: THREE.Ve
   out.set(Math.cos(yaw) * cs, Math.sin(el), Math.sin(yaw) * cs).normalize();
 }
 
-function mixPalette(t: number): void {
-  _zenith.copy(NIGHT.zenith).lerp(DAWN.zenith, t);
-  _horizon.copy(NIGHT.horizon).lerp(DAWN.horizon, t);
-  _glow.copy(NIGHT.glow).lerp(DAWN.glow, t);
-  _hemiSky.copy(NIGHT.hemiSky).lerp(DAWN.hemiSky, t);
-  _hemiGround.copy(NIGHT.hemiGround).lerp(DAWN.hemiGround, t);
-  _moon.copy(NIGHT.moon).lerp(DAWN.moon, t);
-  _sun.copy(NIGHT.sun).lerp(DAWN.sun, t);
-  _fill.copy(NIGHT.fill).lerp(DAWN.fill, t);
+function mixLighting(t: number): void {
+  mixColorTowardDay(t, NIGHT.hemiSky, DAWN.hemiSky, DAY.hemiSky, _hemiSky);
+  mixColorTowardDay(t, NIGHT.hemiGround, DAWN.hemiGround, DAY.hemiGround, _hemiGround);
+  mixColorTowardDay(t, NIGHT.moon, DAWN.moon, DAY.moon, _moon);
+  mixColorTowardDay(t, NIGHT.sun, DAWN.sun, DAY.sun, _sun);
+  mixColorTowardDay(t, NIGHT.fill, DAWN.fill, DAY.fill, _fill);
+  _hemi = mixScalarTowardDay(t, NIGHT.hemi, DAWN.hemi, DAY.hemi);
+  _fillLight = mixScalarTowardDay(t, NIGHT.fillLight, DAWN.fillLight, DAY.fillLight);
+  _sunLight = mixScalarTowardDay(t, NIGHT.sunLight, DAWN.sunLight, DAY.sunLight);
+  _moonLight = mixScalarTowardDay(t, NIGHT.moonLight, DAWN.moonLight, DAY.moonLight);
+  _stars = mixScalarTowardDay(t, NIGHT.stars, DAWN.stars, DAY.stars);
+  _fogNear = mixScalarTowardDay(t, FOG.nightNear, FOG.dawnNear, FOG.dayNear);
+  _fogFar = mixScalarTowardDay(t, FOG.nightFar, FOG.dawnFar, FOG.dayFar);
+  _fogStrength = mixScalarTowardDay(t, FOG.nightStrength, FOG.dawnStrength, FOG.dayStrength);
 }
 
-/** Soft atmospheric tint. Stays in the night/dawn fog palette so daytime never washes white. */
+/** Soft atmospheric tint. Day stays blue-grey so noon never washes peach or white. */
 function mixFogColor(t: number): void {
-  _fog.copy(NIGHT.fog).lerp(DAWN.fog, t);
-  _fog.lerp(_skyLower, 0.14);
+  mixColorTowardDay(t, NIGHT.fog, DAWN.fog, DAY.fog, _fog);
+  _fog.lerp(_skyLower, 0.12);
 }
 
 /**
@@ -413,7 +438,7 @@ function fogFarFor(near: number, far: number, strength: number): number {
 }
 
 /**
- * Dome + cloud colors from night → day using the same progress `t` as `dayAmount`.
+ * Dome + cloud colors from night → day using the same progress `t` as `cycleAmount`.
  * Warm cloud tint peaks near CLOUD_WARM_PEAK, then fades to DAY_SKY whites.
  */
 function mixSkyDomeColors(t: number): void {
@@ -459,8 +484,8 @@ function mixSkyDomeColors(t: number): void {
   );
 }
 
-/** Night → warm dawn → day white, keyed off CLOUD_WARM_PEAK. */
-function mixCloudTowardDay(
+/** Night → warm dawn/dusk → day, keyed off CLOUD_WARM_PEAK. */
+function mixColorTowardDay(
   t: number,
   night: THREE.Color,
   warm: THREE.Color,
@@ -475,6 +500,25 @@ function mixCloudTowardDay(
   }
   const u = smoothstep(peak, 1, t);
   out.copy(warm).lerp(day, u);
+}
+
+function mixScalarTowardDay(t: number, night: number, warm: number, day: number): number {
+  const peak = Math.max(0.05, Math.min(0.95, CLOUD_WARM_PEAK));
+  if (t <= peak) {
+    return mix(night, warm, smoothstep(0, peak, t));
+  }
+  return mix(warm, day, smoothstep(peak, 1, t));
+}
+
+/** Night → warm dawn → day white, keyed off CLOUD_WARM_PEAK. */
+function mixCloudTowardDay(
+  t: number,
+  night: THREE.Color,
+  warm: THREE.Color,
+  day: THREE.Color,
+  out: THREE.Color,
+): void {
+  mixColorTowardDay(t, night, warm, day, out);
 }
 
 function makeSkyMaterial(moonMap: THREE.Texture, sunMap: THREE.Texture): THREE.ShaderMaterial {
@@ -832,8 +876,10 @@ function drawMoon(): HTMLCanvasElement {
 function setupTreeShadows(light: THREE.DirectionalLight): void {
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
-  light.shadow.bias = -0.0012;
-  light.shadow.normalBias = 1.4;
+  light.shadow.intensity = 0.42;
+  light.shadow.radius = 2.2;
+  light.shadow.bias = -0.0009;
+  light.shadow.normalBias = 0.85;
   const cam = light.shadow.camera;
   const extent = 220;
   cam.left = -extent;

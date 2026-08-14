@@ -429,7 +429,7 @@ function makeCrate(): THREE.Group {
   boxMesh.position.y = 0;
   const band = new THREE.Mesh(new THREE.BoxGeometry(6.7, 1.2, 6.7), strap);
   band.position.y = 0.2;
-  group.add(boxMesh, band);
+  group.add(shadow(boxMesh), shadow(band));
   return group;
 }
 
@@ -448,7 +448,7 @@ function makeHouseMesh(house: House): THREE.Group {
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(house.x + house.w * 0.5, 0.04, house.y + house.h * 0.5);
-  group.add(floor);
+  group.add(shadow(floor, false, true));
 
   for (const wall of house.walls) {
     group.add(
@@ -508,7 +508,7 @@ function makeObjectiveProp(objective: Objective): THREE.Group {
       new THREE.MeshLambertMaterial({ color: 0x6a3b32 }),
     );
     chimney.position.y = 4;
-    group.add(chimney);
+    group.add(shadow(chimney));
   } else if (objective.id === "mesa") {
     const top = new THREE.Mesh(
       new THREE.BoxGeometry(14, 1.1, 14),
@@ -520,14 +520,14 @@ function makeObjectiveProp(objective: Objective): THREE.Group {
       new THREE.MeshLambertMaterial({ color: 0x4a3428 }),
     );
     leg.position.y = 3.5;
-    group.add(top, leg);
+    group.add(shadow(top), shadow(leg));
   } else {
     const rock = new THREE.Mesh(
       new THREE.DodecahedronGeometry(4.2, 0),
       new THREE.MeshLambertMaterial({ color: 0x7a776e }),
     );
     rock.position.y = 3;
-    group.add(rock);
+    group.add(shadow(rock));
   }
   return group;
 }
@@ -551,7 +551,7 @@ function makePoi(poi: Poi): THREE.Group {
       new THREE.MeshLambertMaterial({ color: 0x8d8678 }),
     );
     spout.position.y = 5;
-    group.add(base, water, spout);
+    group.add(shadow(base), shadow(water, false, true), shadow(spout));
   } else if (poi.kind === "statue") {
     const ped = new THREE.Mesh(
       new THREE.BoxGeometry(10, 4, 10),
@@ -563,14 +563,14 @@ function makePoi(poi: Poi): THREE.Group {
       new THREE.MeshLambertMaterial({ color: 0x8d8678 }),
     );
     figure.position.y = 10;
-    group.add(ped, figure);
+    group.add(shadow(ped), shadow(figure));
   } else {
     const post = new THREE.Mesh(
       new THREE.CylinderGeometry(1.3, 1.6, 7, 8),
       new THREE.MeshLambertMaterial({ color: 0x6b5a3e }),
     );
     post.position.y = 3.5;
-    group.add(post);
+    group.add(shadow(post));
   }
   return group;
 }
@@ -586,6 +586,12 @@ function box(
 ): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   mesh.position.set(x, y, z);
+  return shadow(mesh);
+}
+
+function shadow(mesh: THREE.Mesh, cast = true, receive = true): THREE.Mesh {
+  mesh.castShadow = cast;
+  mesh.receiveShadow = receive;
   return mesh;
 }
 
