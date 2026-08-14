@@ -227,6 +227,11 @@ export function bindMenu(opts: {
     lobbyStatus.textContent = "Esperando jugadores";
   }
 
+  const versionEl = document.querySelector(".menu-version");
+  if (versionEl) {
+    versionEl.textContent = `— v${__APP_VERSION__} —`;
+  }
+
   paintSkins(getProfile());
   showScreen("home");
   syncMuteButton();

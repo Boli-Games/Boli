@@ -6,6 +6,7 @@ import {
   worldMinuteFromTimeLeft,
   wrapMinute,
 } from "../sim/worldClock";
+import { handleAiCommand, installAiDebug } from "./aiDebug";
 import { isDebugHost } from "./enabled";
 
 /**
@@ -35,6 +36,8 @@ export function installTimeConsole(opts: ConsoleOpts): void {
   if (document.getElementById("dbg-time")) {
     return;
   }
+
+  installAiDebug({ getState: opts.getState });
 
   setDebugClockHook({
     tickDelta(dt) {
@@ -189,12 +192,18 @@ function runCommand(raw: string, state: GameState | null): string {
   const cmd = raw.trim().replace(/\s+/g, " ");
   const lower = cmd.toLowerCase();
 
+  const ai = handleAiCommand(cmd, state);
+  if (ai !== null) {
+    return ai;
+  }
+
   if (lower === "help" || lower === "time help") {
     return [
       "time +1 / -1 / +10 / -10",
-      "time set HH:MM   (00:00 noche · 06:00 amanecer · 12:00 mediodía · 18:00 noche)",
+      "time set HH:MM   (00:00 noche · 06:00 día · 12:00 mediodía · 18:00 atardecer)",
       "time pause | resume",
       "time speed <n>",
+      "ai help | ai stuck | ai debug on | ai check house | ai test",
     ].join("\n");
   }
 
