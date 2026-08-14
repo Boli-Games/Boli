@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { worldHour, worldMinuteFromTimeLeft } from "../sim/worldClock";
+import { getQuality } from "../quality";
 
 /** Night holds for most of the round; dawn only arrives as the clock runs down. */
 const DAWN_START = 0.02;
@@ -211,15 +212,20 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   sunMap.colorSpace = THREE.SRGBColorSpace;
   sunMap.needsUpdate = true;
 
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(820, 32, 20), makeSkyMaterial(moonMap, sunMap));
+  const segs = getQuality().skySegments;
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(820, segs, Math.max(12, Math.round(segs * 0.625))),
+    makeSkyMaterial(moonMap, sunMap),
+  );
   dome.geometry.scale(-1, 1, 1);
   dome.frustumCulled = false;
   dome.renderOrder = -100;
   root.add(dome);
 
+  const starDensity = getQuality().starDensity;
   const starField = new THREE.Group();
-  starField.add(makeStars(380, 2.0, makeDotTexture()));
-  starField.add(makeStars(12, 7.5, makeSparkleTexture()));
+  starField.add(makeStars(Math.max(40, Math.round(380 * starDensity)), 2.0, makeDotTexture()));
+  starField.add(makeStars(Math.max(4, Math.round(12 * starDensity)), 7.5, makeSparkleTexture()));
   root.add(starField);
 
   const hemi = new THREE.HemisphereLight(NIGHT.hemiSky, NIGHT.hemiGround, NIGHT.hemi);
@@ -298,8 +304,13 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       aimTreeShadows(sunLight, camera.position, _sunDir);
 
       const sunOwnsShadow = bodies.sun >= bodies.moon;
-      sunLight.castShadow = sunOwnsShadow;
-      moonLight.castShadow = !sunOwnsShadow;
+      if (getQuality().shadows) {
+        sunLight.castShadow = sunOwnsShadow;
+        moonLight.castShadow = !sunOwnsShadow;
+      } else {
+        sunLight.castShadow = false;
+        moonLight.castShadow = false;
+      }
 
       fill.color.copy(_fill);
       fill.intensity = _fillLight;
@@ -874,10 +885,11 @@ function drawMoon(): HTMLCanvasElement {
 }
 
 function setupTreeShadows(light: THREE.DirectionalLight): void {
-  light.castShadow = true;
-  light.shadow.mapSize.set(2048, 2048);
+  const quality = getQuality();
+  light.castShadow = quality.shadows;
+  light.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   light.shadow.intensity = 0.42;
-  light.shadow.radius = 2.2;
+  light.shadow.radius = quality.tier === "desktop" ? 2.2 : 1.2;
   light.shadow.bias = -0.0009;
   light.shadow.normalBias = 0.85;
   const cam = light.shadow.camera;

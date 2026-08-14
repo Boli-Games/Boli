@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mulberry32 } from "../sim/rng";
+import { getQuality } from "../quality";
 
 /** How far the forest floor and trees extend past the playable map. */
 export const FOREST_EXTENT = 168;
@@ -462,6 +463,9 @@ function scatterForestNature(width: number, height: number, rng: () => number): 
       if (rng() < skip) {
         return;
       }
+      if (band.kind === "far" && getQuality().farForestSkip > 0 && rng() < getQuality().farForestSkip) {
+        return;
+      }
       const centerClear = band.kind === "near" ? 24 : band.kind === "far" ? 18 : 16;
       if (tooClose(x, z, centerClear, trees)) {
         return;
@@ -488,6 +492,11 @@ function scatterForestNature(width: number, height: number, rng: () => number): 
     plantForestGrove(x, z, groveField(x, z), kind, width, height, trees, bushes, logs, rng);
   }
 
+  const quality = getQuality();
+  if (!quality.forestProps) {
+    bushes.length = 0;
+    logs.length = 0;
+  }
   return { trees, bushes, logs };
 }
 

@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mulberry32 } from "../sim/rng";
 import type { House, Roof, World } from "../sim/types";
 import { FOREST_EXTENT, loadNatureAssets, type NatureAssets } from "./forest";
+import { getQuality } from "../quality";
 import { HORIZON_MARGIN } from "./horizon";
 
 const GRASS_TILE = 14.5;
@@ -551,15 +552,19 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
 }
 
 export function tickGrassLod(camX: number, camZ: number): void {
+  const scale = getQuality().grassLodScale;
+  const far = GRASS_LOD_FAR * scale;
+  const mid = GRASS_LOD_MID * scale;
+  const near = GRASS_LOD_NEAR * scale;
   for (const chunk of grassChunks) {
     const dist = Math.hypot(camX - chunk.x, camZ - chunk.z);
     for (const mesh of chunk.meshes) {
       const name = mesh.name;
-      if (dist > GRASS_LOD_FAR) {
+      if (dist > far) {
         mesh.visible = false;
-      } else if (dist > GRASS_LOD_MID) {
+      } else if (dist > mid) {
         mesh.visible = name.includes("short");
-      } else if (dist > GRASS_LOD_NEAR) {
+      } else if (dist > near) {
         mesh.visible = !name.includes("leafy");
       } else {
         mesh.visible = true;

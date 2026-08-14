@@ -6,6 +6,15 @@ import {
 } from "./auth";
 import { createInput } from "./input";
 import { bindMenu, roomCodeFromUrl } from "./menu";
+import {
+  canRequestFullscreen,
+  initPlatform,
+  onPlatformChange,
+  preferLandscape,
+  toggleFullscreen,
+  usesTouchInput,
+} from "./platform";
+import { bindTouchControls } from "./touchControls";
 import { connectRoom, type RoomClient } from "./net/room";
 import { randomRoomCode, type NetInput, type ServerMsg, emptyInput } from "./net/protocol";
 import { applyRoundRewards, parseCameraMode, sensitivityToSlider, sliderToSensitivity, type CameraMode } from "./profile";
@@ -46,9 +55,17 @@ const hurt: HTMLElement = hurtEl;
 const way: HTMLElement = wayEl;
 const sens: HTMLInputElement = sensEl;
 
-const input = createInput(canvas);
+initPlatform();
+const touch = bindTouchControls();
+const input = createInput(canvas, touch);
 const view = createView(canvas);
-window.addEventListener("resize", () => view.resize());
+
+function resizeView(): void {
+  view.resize();
+}
+window.addEventListener("resize", resizeView);
+window.addEventListener("orientationchange", resizeView);
+window.visualViewport?.addEventListener("resize", resizeView);
 view.resize();
 
 type OnlineSession = {
@@ -86,6 +103,13 @@ let shotEcho = 0;
 let shotTargetId: string | null = null;
 let pauseFromEscape = false;
 let latestNet: NetInput = emptyInput();
+
+onPlatformChange(() => {
+  document.documentElement.classList.toggle("is-playing", mode === "online");
+  touch.setVisible(usesTouchInput() && mode === "online");
+  syncFullscreenButton();
+  resizeView();
+});
 
 const menu = bindMenu({
   onCreate: () => joinRoom(randomRoomCode(), true),
@@ -136,6 +160,7 @@ if (isDebugHost()) {
 
 must("#btnResume").addEventListener("click", () => setPaused(false));
 must("#btnQuit").addEventListener("click", () => backToMenu());
+must("#btnFullscreen").addEventListener("click", () => toggleFullscreen());
 sens.addEventListener("input", () => {
   const profile = getProfile();
   setProfile({ ...profile, lookSensitivity: sliderToSensitivity(Number(sens.value)) });
@@ -295,14 +320,23 @@ function syncRoleFromState(forceLook: boolean): void {
 function enterPlay(): void {
   menu.hide();
   hud.classList.remove("hidden");
+  document.documentElement.classList.add("is-playing");
+  touch.setRole(role);
+  touch.setVisible(usesTouchInput());
+  if (usesTouchInput()) {
+    preferLandscape();
+  }
   setPaused(false);
   input.setEnabled(true);
+  syncFullscreenButton();
 }
 
 function backToMenu(error = ""): void {
   document.exitPointerLock();
   setPaused(false);
   input.setEnabled(false);
+  touch.setVisible(false);
+  document.documentElement.classList.remove("is-playing");
   teardownOnline();
   state = null;
   mode = "menu";
@@ -322,16 +356,33 @@ function teardownOnline(): void {
 function setPaused(value: boolean): void {
   paused = value;
   pause.classList.toggle("hidden", !value);
+  const pauseTag = document.querySelector("#pauseTag");
+  if (pauseTag) {
+    pauseTag.textContent = usesTouchInput()
+      ? "La partida sigue. Usá Continuar para volver."
+      : "La partida sigue. Esc para volver.";
+  }
   if (value) {
     document.exitPointerLock();
     input.setEnabled(false);
+    touch.setVisible(false);
     sens.value = String(sensitivityToSlider(getProfile().lookSensitivity));
     syncPauseCameraButtons();
+    syncFullscreenButton();
     return;
   }
   if (mode === "online" && state?.phase === "PLAYING") {
+    touch.setVisible(usesTouchInput());
     input.setEnabled(true);
   }
+}
+
+function syncFullscreenButton(): void {
+  const btn = document.querySelector("#btnFullscreen");
+  if (!btn) {
+    return;
+  }
+  btn.classList.toggle("hidden", !usesTouchInput() || !canRequestFullscreen());
 }
 
 function maybeReward(): void {
@@ -399,13 +450,20 @@ function frame(now: number): void {
   }
 
   const wasLocked = frameInput.pointerLocked;
-  if (frameInput.click && !wasLocked && !paused && state.phase === "PLAYING") {
+  const lookActive = frameInput.lookActive;
+  if (
+    frameInput.click &&
+    !wasLocked &&
+    !paused &&
+    state.phase === "PLAYING" &&
+    !usesTouchInput()
+  ) {
     void canvas.requestPointerLock();
   }
 
   const boliMode = frameInput.boliMode;
-  const look = getProfile().lookSensitivity;
-  if (wasLocked && !paused) {
+  const look = getProfile().lookSensitivity * (usesTouchInput() ? 1.15 : 1);
+  if (lookActive && !paused) {
     if (role === "HUNTER") {
       hunterYaw += frameInput.mouseDx * look;
       hunterPitch -= frameInput.mouseDy * look;
@@ -418,7 +476,7 @@ function frame(now: number): void {
   }
 
   const shootPressed =
-    role === "HUNTER" && frameInput.shootPresses > 0 && wasLocked && !paused && state.phase === "PLAYING";
+    role === "HUNTER" && frameInput.shootPresses > 0 && lookActive && !paused && state.phase === "PLAYING";
   if (shootPressed) {
     const hunter = activeHunter();
     if (hunter && hunter.hp > 0 && state.accusationsLeft > 0) {
@@ -481,6 +539,7 @@ function frame(now: number): void {
   }
 
   syncRoleFromState(false);
+  touch.setRole(role);
 
   const player = playerEntity(state, localId);
   if (player && (boliMode || role === "HUNTER")) {
@@ -498,13 +557,14 @@ function frame(now: number): void {
     pitch: activePitch(),
     boliMode,
     crouch: latestNet.crouch,
-    pointerLocked: wasLocked,
+    pointerLocked: lookActive,
     localId,
     hunterIndex,
     online: true,
     hunterSkinId: getProfile().equippedSkin,
     paused,
     cameraMode: getProfile().cameraMode,
+    touchUi: usesTouchInput(),
   });
   requestAnimationFrame(frame);
 }

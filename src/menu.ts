@@ -1,6 +1,7 @@
 import { isMenuMusicMuted, playMenuMusic, stopMenuMusic, toggleMenuMusicMuted } from "./audio";
 import { getProfile, patchProfile } from "./auth";
 import { HUNTER_SKINS, parseCameraMode, skinById, type CameraMode, type ProfileData } from "./profile";
+import { usesTouchInput } from "./platform";
 
 export type LobbyMember = {
   id: string;
@@ -184,8 +185,10 @@ export function bindMenu(opts: {
     nameInput.value = getProfile().displayName;
     profilePopup.classList.remove("hidden");
     btnProfile.setAttribute("aria-expanded", "true");
-    nameInput.focus();
-    nameInput.select();
+    if (!usesTouchInput()) {
+      nameInput.focus();
+      nameInput.select();
+    }
   }
 
   function closeProfile(): void {
