@@ -78,6 +78,8 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
 
@@ -366,6 +368,7 @@ function buildWorld(root: THREE.Group, state: GameState): void {
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(width * 0.5, 0, height * 0.5);
+  ground.receiveShadow = true;
   root.add(ground);
 
   const coverMat = new THREE.MeshLambertMaterial({ color: 0x4a4338 });
