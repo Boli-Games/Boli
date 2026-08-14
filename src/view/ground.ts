@@ -57,7 +57,7 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
   const planeH = world.height + pad * 2;
   const surfaces = makeSurfaceFns(world);
 
-  const grassMat = new THREE.MeshLambertMaterial({ color: 0x8fbc58, fog: true });
+  const grassMat = new THREE.MeshLambertMaterial({ color: 0xa8d060, fog: true });
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), grassMat);
   grass.name = "ground-grass";
   grass.rotation.x = -Math.PI / 2;
@@ -119,7 +119,7 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
       }
       maps.grass.repeat.set(planeW / GRASS_TILE, planeH / GRASS_TILE);
       grassMat.map = maps.grass;
-      grassMat.color.setHex(0xb6d66c);
+      grassMat.color.setHex(0xc6e878);
       grassMat.needsUpdate = true;
       dirtMat.map = maps.dirt;
       dirtMat.needsUpdate = true;
@@ -456,37 +456,30 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
   const short: Stamp[] = [];
   const tall: Stamp[] = [];
   const leafy: Stamp[] = [];
+  const step = 2.05;
 
-  for (let z = 12; z < world.height - 12; z += 5.4) {
-    for (let x = 12; x < world.width - 12; x += 5.4) {
-      const px = x + (rng() - 0.5) * 4.6;
-      const pz = z + (rng() - 0.5) * 4.6;
-      if (blockedSolid(world, px, pz) || inKeepClear(px, pz, 10)) {
+  let row = 0;
+  for (let z = 10; z < world.height - 10; z += step) {
+    const xOff = (row % 2) * step * 0.5;
+    row += 1;
+    for (let x = 10 + xOff; x < world.width - 10; x += step) {
+      const px = x + (rng() - 0.5) * 1.55;
+      const pz = z + (rng() - 0.5) * 1.55;
+      if (blockedSolid(world, px, pz) || inKeepClear(px, pz, 8)) {
         continue;
       }
       const path = surfaces.path(px, pz);
       const dirt = surfaces.dirt(px, pz);
-      if (path > 0.34 || dirt > 0.68) {
+      if (path > 0.28 || dirt > 0.72) {
         continue;
       }
-      const mix = grassMix(px, pz);
-      const near = structProximity(world, px, pz);
-      if (rng() < 0.9) {
-        short.push(grassStamp(px, pz, rng, 0.82, 1.18, 0.78, 1.12));
-      }
-      if (mix.tall > 0.42 && near < 0.82 && path < 0.2 && dirt < 0.48 && rng() < mix.tall) {
-        const tx = px + (rng() - 0.5) * 2.2;
-        const tz = pz + (rng() - 0.5) * 2.2;
-        if (!blockedSolid(world, tx, tz) && surfaces.path(tx, tz) < 0.2) {
-          tall.push(grassStamp(tx, tz, rng, 0.78, 1.12, 0.88, 1.28));
-        }
-      }
-      if (mix.leafy > 0.55 && near < 0.7 && path < 0.16 && dirt < 0.4 && rng() < mix.leafy * 0.7) {
-        const lx = px + (rng() - 0.5) * 3.4;
-        const lz = pz + (rng() - 0.5) * 3.4;
-        if (!blockedSolid(world, lx, lz) && surfaces.path(lx, lz) < 0.16) {
-          leafy.push(grassStamp(lx, lz, rng, 0.86, 1.22, 0.8, 1.16));
-        }
+      const roll = rng();
+      if (roll < 0.42) {
+        short.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.93, 1.08));
+      } else if (roll < 0.74) {
+        leafy.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.94, 1.09));
+      } else {
+        tall.push(grassStamp(px, pz, rng, 0.93, 1.07, 0.95, 1.1));
       }
     }
   }
@@ -497,21 +490,12 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
     fog: true,
   });
   const worldSphere = new THREE.Sphere(
-    new THREE.Vector3(world.width * 0.5, 0.7, world.height * 0.5),
+    new THREE.Vector3(world.width * 0.5, 0.8, world.height * 0.5),
     Math.hypot(world.width, world.height) * 0.55,
   );
   addStamped(root, "grass-short", makeShortClump(), grassMat, short, 0.02, worldSphere);
   addStamped(root, "grass-tall", makeTallClump(), grassMat, tall, 0.02, worldSphere);
   addStamped(root, "grass-leafy", makeLeafyClump(), grassMat, leafy, 0.02, worldSphere);
-}
-
-function grassMix(x: number, z: number): { tall: number; leafy: number } {
-  const n = valueNoise(x * 0.01, z * 0.01);
-  const n2 = valueNoise(x * 0.023 + 18, z * 0.023);
-  return {
-    tall: smoothstep(0.28, 0.72, n) * 0.85,
-    leafy: smoothstep(0.48, 0.86, n2) * smoothstep(0.32, 0.7, n),
-  };
 }
 
 function grassStamp(
@@ -536,36 +520,36 @@ function grassStamp(
 
 function makeShortClump(): THREE.BufferGeometry {
   const blades = [
-    { yaw: 0.2, lean: 0.08, h: 0.46, w: 0.22, t: 0.09, ox: 0.04, oz: 0.02 },
-    { yaw: 0.95, lean: 0.12, h: 0.38, w: 0.2, t: 0.08, ox: -0.08, oz: 0.07 },
-    { yaw: 1.7, lean: 0.06, h: 0.5, w: 0.24, t: 0.1, ox: 0.1, oz: -0.05 },
-    { yaw: 2.5, lean: 0.14, h: 0.34, w: 0.18, t: 0.08, ox: -0.02, oz: -0.1 },
-    { yaw: 3.4, lean: 0.09, h: 0.42, w: 0.21, t: 0.09, ox: 0.08, oz: 0.09 },
-    { yaw: 4.3, lean: 0.11, h: 0.36, w: 0.19, t: 0.08, ox: -0.11, oz: 0.01 },
+    { yaw: 0.2, lean: 0.08, h: 0.94, w: 0.22, t: 0.09, ox: 0.04, oz: 0.02 },
+    { yaw: 0.95, lean: 0.12, h: 0.86, w: 0.2, t: 0.08, ox: -0.08, oz: 0.07 },
+    { yaw: 1.7, lean: 0.06, h: 1.02, w: 0.24, t: 0.1, ox: 0.1, oz: -0.05 },
+    { yaw: 2.5, lean: 0.14, h: 0.8, w: 0.18, t: 0.08, ox: -0.02, oz: -0.1 },
+    { yaw: 3.4, lean: 0.09, h: 0.92, w: 0.21, t: 0.09, ox: 0.08, oz: 0.09 },
+    { yaw: 4.3, lean: 0.11, h: 0.84, w: 0.19, t: 0.08, ox: -0.11, oz: 0.01 },
   ];
-  return mergeBlades(blades, 0x3d8a34, 0xb0dc56, 0.5);
+  return mergeBlades(blades, 0x58b044, 0xc8ee6a, 1.02);
 }
 
 function makeTallClump(): THREE.BufferGeometry {
   const blades = [
-    { yaw: 0.1, lean: 0.16, h: 1.42, w: 0.1, t: 0.055, ox: 0.02, oz: 0.01 },
-    { yaw: 1.35, lean: 0.22, h: 1.18, w: 0.08, t: 0.05, ox: -0.06, oz: 0.05 },
-    { yaw: 2.6, lean: 0.12, h: 1.55, w: 0.11, t: 0.05, ox: 0.05, oz: -0.04 },
-    { yaw: 4.1, lean: 0.28, h: 1.08, w: 0.09, t: 0.048, ox: -0.03, oz: -0.06 },
+    { yaw: 0.1, lean: 0.16, h: 1.18, w: 0.1, t: 0.055, ox: 0.02, oz: 0.01 },
+    { yaw: 1.35, lean: 0.22, h: 1.08, w: 0.08, t: 0.05, ox: -0.06, oz: 0.05 },
+    { yaw: 2.6, lean: 0.12, h: 1.24, w: 0.11, t: 0.05, ox: 0.05, oz: -0.04 },
+    { yaw: 4.1, lean: 0.28, h: 1.02, w: 0.09, t: 0.048, ox: -0.03, oz: -0.06 },
   ];
-  return mergeBlades(blades, 0x387f30, 0xc5ea62, 1.55);
+  return mergeBlades(blades, 0x52a83e, 0xd2f274, 1.24);
 }
 
 function makeLeafyClump(): THREE.BufferGeometry {
   const blades = [
-    { yaw: 0.05, lean: 0.42, h: 0.92, w: 0.34, t: 0.07, ox: 0.06, oz: 0.02 },
-    { yaw: 0.9, lean: 0.55, h: 0.78, w: 0.3, t: 0.065, ox: -0.08, oz: 0.1 },
-    { yaw: 1.85, lean: 0.38, h: 1.02, w: 0.38, t: 0.07, ox: 0.12, oz: -0.04 },
-    { yaw: 2.7, lean: 0.6, h: 0.7, w: 0.28, t: 0.06, ox: -0.04, oz: -0.12 },
-    { yaw: 3.6, lean: 0.48, h: 0.88, w: 0.32, t: 0.068, ox: 0.1, oz: 0.08 },
-    { yaw: 4.7, lean: 0.33, h: 0.96, w: 0.36, t: 0.07, ox: -0.1, oz: 0.0 },
+    { yaw: 0.05, lean: 0.42, h: 1.06, w: 0.34, t: 0.07, ox: 0.06, oz: 0.02 },
+    { yaw: 0.9, lean: 0.55, h: 0.94, w: 0.3, t: 0.065, ox: -0.08, oz: 0.1 },
+    { yaw: 1.85, lean: 0.38, h: 1.14, w: 0.38, t: 0.07, ox: 0.12, oz: -0.04 },
+    { yaw: 2.7, lean: 0.6, h: 0.88, w: 0.28, t: 0.06, ox: -0.04, oz: -0.12 },
+    { yaw: 3.6, lean: 0.48, h: 1.02, w: 0.32, t: 0.068, ox: 0.1, oz: 0.08 },
+    { yaw: 4.7, lean: 0.33, h: 1.1, w: 0.36, t: 0.07, ox: -0.1, oz: 0.0 },
   ];
-  return mergeBlades(blades, 0x428c36, 0xb8e054, 1.02);
+  return mergeBlades(blades, 0x56b042, 0xcae85e, 1.14);
 }
 
 function mergeBlades(
@@ -576,7 +560,7 @@ function mergeBlades(
 ): THREE.BufferGeometry {
   const geos: THREE.BufferGeometry[] = [];
   for (const blade of blades) {
-    const box = new THREE.BoxGeometry(blade.w, blade.h, blade.t, 1, 3, 1);
+    const box = new THREE.BoxGeometry(blade.w, blade.h, blade.t, 1, 1, 1);
     box.translate(0, blade.h * 0.5, 0);
     box.rotateZ(blade.lean);
     box.rotateY(blade.yaw);
