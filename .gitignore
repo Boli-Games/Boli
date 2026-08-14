@@ -4,3 +4,5 @@ dist
 *.local
 .vercel
 .partykit
+.wrangler
+tmp-hud-assets.py
