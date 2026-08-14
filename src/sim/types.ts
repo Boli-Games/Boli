@@ -106,6 +106,11 @@ export type Entity = {
   stuckToward: number;
   /** Smoothed useful progress (u/s). */
   stuckUseful: number;
+  /** Final destination. Waypoints may occupy targetX/Y until this is reached. */
+  goalX: number;
+  goalY: number;
+  route: { id: string; x: number; y: number }[] | null;
+  routeStep: number;
 };
 
 export type Hunter = {
@@ -273,6 +278,10 @@ export const VIEW = {
   crouchEyeHeight: 8.2,
   bodyHeight: 16,
   lookSensitivity: 0.0022,
+  tpDistance: 42,
+  tpHeight: 18,
+  tpShoulder: 8,
+  tpMinDist: 10,
 } as const;
 
 export function locomotionSpeed(opts: { sprint: boolean; crouch: boolean; blend?: boolean }): number {

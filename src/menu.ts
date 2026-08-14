@@ -1,13 +1,13 @@
 import { isMenuMusicMuted, playMenuMusic, stopMenuMusic, toggleMenuMusicMuted } from "./audio";
 import { getProfile, patchProfile } from "./auth";
-import { HUNTER_SKINS, skinById, type ProfileData } from "./profile";
+import { HUNTER_SKINS, parseCameraMode, skinById, type CameraMode, type ProfileData } from "./profile";
 
 export type LobbyMember = {
   id: string;
   name: string;
 };
 
-type MenuScreen = "home" | "create" | "customize";
+type MenuScreen = "home" | "create" | "customize" | "settings";
 
 export function bindMenu(opts: {
   onCreate: () => void;
@@ -24,6 +24,7 @@ export function bindMenu(opts: {
   const home = must("#home");
   const screenCreate = must("#screenCreate");
   const screenCustomize = must("#screenCustomize");
+  const screenSettings = must("#screenSettings");
   const homeChrome = must("#homeChrome");
   const createSetup = must("#createSetup");
   const lobby = must("#lobby");
@@ -46,6 +47,7 @@ export function bindMenu(opts: {
     home,
     create: screenCreate,
     customize: screenCustomize,
+    settings: screenSettings,
   };
 
   let screen: MenuScreen = "home";
@@ -59,10 +61,14 @@ export function bindMenu(opts: {
     closeProfile();
     showScreen("customize");
   });
-  // AJUSTES: botón visual preparado, sin funcionalidad todavía.
-  must("#btnNavSettings").addEventListener("click", (event) => {
-    event.preventDefault();
+  // AJUSTES: cámara en tercera / primera persona.
+  must("#btnNavSettings").addEventListener("click", () => {
+    closeProfile();
+    showScreen("settings");
   });
+  must("#btnBackSettings").addEventListener("click", () => showScreen("home"));
+  must("#btnSetCamThird").addEventListener("click", () => setCameraMode("thirdPerson"));
+  must("#btnSetCamFirst").addEventListener("click", () => setCameraMode("firstPerson"));
 
   must("#btnBackCreate").addEventListener("click", () => {
     if (inLobby) {
@@ -152,9 +158,23 @@ export function bindMenu(opts: {
     if (next === "customize") {
       paintSkins(getProfile());
     }
+    if (next === "settings") {
+      syncCameraButtons();
+    }
     if (next === "create" && !inLobby) {
       errorEl.textContent = "";
     }
+  }
+
+  function setCameraMode(mode: CameraMode): void {
+    patchProfile({ cameraMode: parseCameraMode(mode) });
+    syncCameraButtons();
+  }
+
+  function syncCameraButtons(): void {
+    const mode = getProfile().cameraMode;
+    must("#btnSetCamThird").classList.toggle("on", mode === "thirdPerson");
+    must("#btnSetCamFirst").classList.toggle("on", mode === "firstPerson");
   }
 
   function openProfile(): void {
@@ -233,6 +253,7 @@ export function bindMenu(opts: {
   }
 
   paintSkins(getProfile());
+  syncCameraButtons();
   showScreen("home");
   syncMuteButton();
   playMenuMusic();
@@ -285,6 +306,9 @@ export function bindMenu(opts: {
     refreshProfile() {
       if (screen === "customize") {
         paintSkins(getProfile());
+      }
+      if (screen === "settings") {
+        syncCameraButtons();
       }
       if (document.activeElement !== nameInput) {
         nameInput.value = getProfile().displayName;

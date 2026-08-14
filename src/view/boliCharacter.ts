@@ -8,6 +8,9 @@ import skin3Url from "../../models/bolis/boli_skin3_rigged.glb?url";
 import {
   CLIP_CROUCH_IDLE,
   CLIP_CROUCH_WALK,
+  CLIP_DANCE_1,
+  CLIP_DANCE_2,
+  CLIP_DANCE_3,
   CLIP_DOWNED,
   CLIP_IDLE,
   CLIP_WALK,
@@ -43,6 +46,7 @@ export type BoliLocomotion = {
   walking: boolean;
   crouch: boolean;
   downed: boolean;
+  dancing?: boolean;
   walkTime: number;
   x: number;
   y: number;
@@ -197,6 +201,17 @@ function hash01(text: string, salt = 0): number {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0) / 4294967296;
+}
+
+function danceClipFor(id?: string): string {
+  const n = hash01(id ?? "boli", 9);
+  if (n < 0.34) {
+    return CLIP_DANCE_1;
+  }
+  if (n < 0.67) {
+    return CLIP_DANCE_2;
+  }
+  return CLIP_DANCE_3;
 }
 
 async function loadSkinTemplate(skinId: BoliSkinId): Promise<Template> {
@@ -444,8 +459,11 @@ export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void
   }
   const speed = sampleMoveSpeed(mesh, loco.x, loco.y);
   const moving = !loco.downed && (loco.walking || speed > MOVE_EPS);
+  const dance = loco.dancing ? danceClipFor(loco.id) : null;
   const clip = loco.downed
     ? CLIP_DOWNED
+    : dance
+      ? dance
     : loco.crouch && moving
       ? CLIP_CROUCH_WALK
       : loco.crouch
@@ -485,7 +503,13 @@ export function tickBoliAnimation(mesh: THREE.Group, dt: number): void {
     return;
   }
   const loc = animator.current === CLIP_WALK || animator.current === CLIP_CROUCH_WALK;
-  const scale = loc ? animator.speedScale : animator.current === CLIP_IDLE || animator.current === CLIP_CROUCH_IDLE
+  const dancing =
+    animator.current === CLIP_DANCE_1 ||
+    animator.current === CLIP_DANCE_2 ||
+    animator.current === CLIP_DANCE_3;
+  const scale = loc ? animator.speedScale : dancing
+    ? 1
+    : animator.current === CLIP_IDLE || animator.current === CLIP_CROUCH_IDLE
     ? animator.idleScale
     : 1;
   animator.times[animator.current] = (animator.times[animator.current] ?? 0) + step * scale;

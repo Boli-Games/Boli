@@ -8,13 +8,20 @@ export type ProfileStats = {
   missionRounds: number;
 };
 
+export type CameraMode = "thirdPerson" | "firstPerson";
+
 export type ProfileData = {
   displayName: string;
   equippedSkin: string;
   unlocked: string[];
   stats: ProfileStats;
   lookSensitivity: number;
+  cameraMode: CameraMode;
 };
+
+export function parseCameraMode(value: unknown): CameraMode {
+  return value === "firstPerson" ? "firstPerson" : "thirdPerson";
+}
 
 export type HunterSkin = {
   id: string;
@@ -43,6 +50,7 @@ export function defaultProfile(): ProfileData {
     unlocked: [...DEFAULT_UNLOCKED],
     stats: { rounds: 0, hiderWins: 0, hunterWins: 0, missionRounds: 0 },
     lookSensitivity: 4 * SENS_STEP,
+    cameraMode: "thirdPerson",
   };
 }
 
@@ -86,6 +94,7 @@ export function sanitizeProfile(raw: Partial<ProfileData> | null | undefined): P
       missionRounds: Math.max(0, stats?.missionRounds ?? 0),
     },
     lookSensitivity: Math.min(0.006, Math.max(0.00055, look)),
+    cameraMode: parseCameraMode(raw?.cameraMode ?? base.cameraMode),
   };
 }
 
@@ -103,6 +112,7 @@ export function mergeProfiles(local: ProfileData, remote: ProfileData): ProfileD
       missionRounds: Math.max(local.stats.missionRounds, remote.stats.missionRounds),
     },
     lookSensitivity: local.lookSensitivity,
+    cameraMode: local.cameraMode,
   });
 }
 

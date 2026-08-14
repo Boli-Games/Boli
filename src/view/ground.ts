@@ -14,7 +14,7 @@ const PATH_FADE = 5.4;
 const TUFT_SEED = 0x6ea55;
 const STONE_SEED = 0xc0bb1e;
 const NATURE_SEED = 0x51a11;
-const GRASS_STEP = 2.05;
+const GRASS_STEP = 4;
 /** Same 3D tuft density through the near forest, so the playable wall has no grass seam. */
 const GRASS_FULL_OUT = 72;
 /** Noisy outer reach for tufts; stays inside the forest belt. */
@@ -54,6 +54,12 @@ type Stamp = {
 };
 
 let buildId = 0;
+const GRASS_CHUNK = 80;
+const GRASS_LOD_NEAR = 170;
+const GRASS_LOD_MID = 290;
+const GRASS_LOD_FAR = 430;
+type GrassChunk = { x: number; z: number; meshes: THREE.Object3D[] };
+let grassChunks: GrassChunk[] = [];
 
 export function addGroundSurfaces(root: THREE.Group, world: World): void {
   const id = ++buildId;
@@ -457,10 +463,9 @@ function doorAnchor(house: House): { x: number; y: number; nx: number; ny: numbe
 }
 
 function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): void {
+  grassChunks = [];
   const rng = mulberry32(TUFT_SEED);
-  const short: Stamp[] = [];
-  const tall: Stamp[] = [];
-  const leafy: Stamp[] = [];
+  const buckets = new Map<string, { x: number; z: number; short: Stamp[]; tall: Stamp[]; leafy: Stamp[] }>();
   const step = GRASS_STEP;
   const extent = GRASS_FAR_OUT + step * 6;
 
@@ -482,26 +487,85 @@ function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): v
       if (path > 0.28 || dirt > 0.72) {
         continue;
       }
+      const cx = Math.floor(px / GRASS_CHUNK);
+      const cz = Math.floor(pz / GRASS_CHUNK);
+      const key = `${cx},${cz}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = {
+          x: (cx + 0.5) * GRASS_CHUNK,
+          z: (cz + 0.5) * GRASS_CHUNK,
+          short: [],
+          tall: [],
+          leafy: [],
+        };
+        buckets.set(key, bucket);
+      }
       const roll = rng();
       if (roll < 0.42) {
-        short.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.93, 1.08));
+        bucket.short.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.93, 1.08));
       } else if (roll < 0.74) {
-        leafy.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.94, 1.09));
+        bucket.leafy.push(grassStamp(px, pz, rng, 0.94, 1.08, 0.94, 1.09));
       } else {
-        tall.push(grassStamp(px, pz, rng, 0.93, 1.07, 0.95, 1.1));
+        bucket.tall.push(grassStamp(px, pz, rng, 0.93, 1.07, 0.95, 1.1));
       }
     }
   }
 
   const grassMat = new THREE.MeshLambertMaterial({
     vertexColors: true,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     fog: true,
   });
-  const worldSphere = groundFieldSphere(world, 0.8);
-  addStamped(root, "grass-short", makeShortClump(), grassMat, short, 0.02, worldSphere, false, false);
-  addStamped(root, "grass-tall", makeTallClump(), grassMat, tall, 0.02, worldSphere, false, false);
-  addStamped(root, "grass-leafy", makeLeafyClump(), grassMat, leafy, 0.02, worldSphere, false, false);
+  const shortGeo = makeShortClump();
+  const tallGeo = makeTallClump();
+  const leafyGeo = makeLeafyClump();
+  for (const bucket of buckets.values()) {
+    const sphere = new THREE.Sphere(
+      new THREE.Vector3(bucket.x, 0.8, bucket.z),
+      GRASS_CHUNK * 0.85,
+    );
+    const meshes: THREE.Object3D[] = [];
+    if (bucket.short.length > 0) {
+      const mesh = addStamped(root, "grass-short", shortGeo, grassMat, bucket.short, 0.02, sphere, false, false);
+      if (mesh) {
+        meshes.push(mesh);
+      }
+    }
+    if (bucket.tall.length > 0) {
+      const mesh = addStamped(root, "grass-tall", tallGeo, grassMat, bucket.tall, 0.02, sphere, false, false);
+      if (mesh) {
+        meshes.push(mesh);
+      }
+    }
+    if (bucket.leafy.length > 0) {
+      const mesh = addStamped(root, "grass-leafy", leafyGeo, grassMat, bucket.leafy, 0.02, sphere, false, false);
+      if (mesh) {
+        meshes.push(mesh);
+      }
+    }
+    if (meshes.length > 0) {
+      grassChunks.push({ x: bucket.x, z: bucket.z, meshes });
+    }
+  }
+}
+
+export function tickGrassLod(camX: number, camZ: number): void {
+  for (const chunk of grassChunks) {
+    const dist = Math.hypot(camX - chunk.x, camZ - chunk.z);
+    for (const mesh of chunk.meshes) {
+      const name = mesh.name;
+      if (dist > GRASS_LOD_FAR) {
+        mesh.visible = false;
+      } else if (dist > GRASS_LOD_MID) {
+        mesh.visible = name.includes("short");
+      } else if (dist > GRASS_LOD_NEAR) {
+        mesh.visible = !name.includes("leafy");
+      } else {
+        mesh.visible = true;
+      }
+    }
+  }
 }
 
 function keepVisualGrass(x: number, z: number, world: World, rng: () => number): boolean {
@@ -1015,10 +1079,9 @@ function addStamped(
   sphere: THREE.Sphere,
   instanceColor = false,
   receiveShadow = false,
-): void {
+): THREE.InstancedMesh | null {
   if (stamps.length === 0) {
-    geo.dispose();
-    return;
+    return null;
   }
   const mesh = new THREE.InstancedMesh(geo, mat, stamps.length);
   mesh.name = name;
@@ -1045,6 +1108,7 @@ function addStamped(
     mesh.instanceColor.needsUpdate = true;
   }
   root.add(mesh);
+  return mesh;
 }
 
 function blockedSolid(world: World, x: number, z: number): boolean {

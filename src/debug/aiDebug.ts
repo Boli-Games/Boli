@@ -4,6 +4,7 @@ import {
   isStuckDebug,
   setStuckDebug,
 } from "../sim/boliAi";
+import { runApproachTests } from "../sim/approachTest";
 import { runStuckRecoveryTests } from "../sim/stuckRecoveryTest";
 import { type BehaviorCheckKind, type GameState, RHYTHM } from "../sim/types";
 import { isDebugHost } from "./enabled";
@@ -41,7 +42,7 @@ export function handleAiCommand(raw: string, state: GameState | null): string | 
       "ai debug on|off   overlay + logs de recuperación (localhost)",
       "ai check house    fuerza el check de la casa chica",
       "ai check fountain | sit",
-      "ai test           corre las pruebas de atasco en un mundo aislado",
+      "ai test           corre atasco + approach de puertas en un mundo aislado",
     ].join("\n");
   }
 
@@ -78,7 +79,7 @@ export function handleAiCommand(raw: string, state: GameState | null): string | 
   }
 
   if (cmd === "ai test") {
-    return runStuckRecoveryTests().join("\n");
+    return [...runStuckRecoveryTests(), ...runApproachTests()].join("\n");
   }
 
   return "comando ai desconocido — ai help";

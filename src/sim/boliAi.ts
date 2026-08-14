@@ -1,3 +1,4 @@
+import { planApproach } from "./approach";
 import { angleTo, applyVertical, assignPose, moveToward, readPose } from "./physics";
 import {
   RHYTHM,
@@ -39,7 +40,7 @@ export function boliStuckInfo(entity: Entity, checkActive = false): BoliStuckInf
     id: entity.id,
     state: entity.state,
     stuckTimer: entity.stuckTimer ?? 0,
-    dist: Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y),
+    dist: Math.hypot(goalXOf(entity) - entity.x, goalYOf(entity) - entity.y),
     moved: Math.hypot(entity.x - (entity.stuckX ?? entity.x), entity.y - (entity.stuckY ?? entity.y)),
     speed: entity.stuckSpeed ?? 0,
     expected: RHYTHM.speed,
@@ -60,6 +61,7 @@ export function tickBolis(state: GameState, dt: number, rng: () => number): void
     entity.walkTime = state.clock;
     entity.headPhase = state.clock;
     ensureStuckFields(entity);
+    ensureRouteFields(entity);
     tickBoli(state, entity, dt, rng);
     assignPose(entity, applyVertical(state.world, readPose(entity), dt));
   }
@@ -178,8 +180,7 @@ function sendToCheck(state: GameState, entity: Entity, check: BehaviorCheck, rng
   entity.state = "REGROUP";
   entity.regroupPoiId = `check-${check.kind}`;
   entity.stateTimer = check.ttl;
-  entity.targetX = targetX;
-  entity.targetY = targetY;
+  setDestination(state.world, entity, targetX, targetY, rng);
   entity.stuckRetries = 0;
   entity.stuckRecoverTtl = 0;
   resetStuck(entity);
@@ -283,7 +284,7 @@ function tickBoli(state: GameState, entity: Entity, dt: number, rng: () => numbe
 }
 
 function tickCheckFollow(state: GameState, entity: Entity, dt: number, rng: () => number): void {
-  if (!hasArrived(entity)) {
+  if (!hasArrivedAtGoal(entity)) {
     entity.state = "REGROUP";
     if (stepWalk(state, entity, dt)) {
       recoverFromStuck(state, entity, rng);
@@ -300,7 +301,7 @@ function tickWander(state: GameState, entity: Entity, dt: number, rng: () => num
     return;
   }
   entity.stateTimer -= dt;
-  if (hasArrived(entity)) {
+  if (hasArrivedAtGoal(entity)) {
     enterDance(entity, rng);
     return;
   }
@@ -329,7 +330,7 @@ function tickPause(state: GameState, entity: Entity, dt: number, rng: () => numb
 }
 
 function tickRegroup(state: GameState, entity: Entity, dt: number, rng: () => number): void {
-  if (!hasArrived(entity)) {
+  if (!hasArrivedAtGoal(entity)) {
     if (stepWalk(state, entity, dt)) {
       recoverFromStuck(state, entity, rng);
     }
@@ -354,8 +355,7 @@ function tickReact(entity: Entity, dt: number): void {
 export function enterWander(world: World, entity: Entity, rng: () => number): void {
   const point = randomCrowdPoint(world, rng, entity.layer);
   entity.state = "WANDER";
-  entity.targetX = point.x;
-  entity.targetY = point.y;
+  setDestination(world, entity, point.x, point.y, rng);
   const dist = Math.hypot(point.x - entity.x, point.y - entity.y);
   entity.stateTimer = dist / RHYTHM.speed + 2;
   entity.regroupPoiId = null;
@@ -382,7 +382,7 @@ function enterDance(entity: Entity, rng: () => number): void {
 
 function tickDance(state: GameState, entity: Entity, dt: number, rng: () => number): void {
   entity.stateTimer -= dt;
-  applyIdleLook(entity);
+  entity.angle = entity.lookAngle;
   if (entity.stateTimer > 0) {
     return;
   }
@@ -416,6 +416,10 @@ export function enterReact(entity: Entity, shotX: number, shotY: number): void {
   const away = angleTo(shotX, shotY, entity.x, entity.y);
   entity.targetX = entity.x + Math.cos(away) * 36;
   entity.targetY = entity.y + Math.sin(away) * 36;
+  entity.goalX = entity.targetX;
+  entity.goalY = entity.targetY;
+  entity.route = null;
+  entity.routeStep = 0;
   resetStuck(entity);
 }
 
@@ -434,15 +438,15 @@ function startRegroup(state: GameState, entity: Entity, poi: Poi, rng: () => num
   entity.state = "REGROUP";
   entity.regroupPoiId = poi.id;
   entity.stateTimer = RHYTHM.regroupHold;
-  entity.targetX = targetX;
-  entity.targetY = targetY;
+  setDestination(state.world, entity, targetX, targetY, rng);
   entity.stuckRetries = 0;
   entity.stuckRecoverTtl = 0;
   resetStuck(entity);
 }
 
 function stepWalk(state: GameState, entity: Entity, dt: number): boolean {
-  if (hasArrived(entity)) {
+  pullNextStop(entity);
+  if (hasArrivedAtGoal(entity)) {
     resetStuck(entity);
     return false;
   }
@@ -482,6 +486,8 @@ function recoverFromStuck(state: GameState, entity: Entity, rng: () => number): 
   }
   entity.stuckRetries = 0;
   entity.regroupPoiId = null;
+  entity.route = null;
+  entity.routeStep = 0;
 }
 
 function tickStuckRecover(
@@ -588,6 +594,70 @@ function ensureStuckFields(entity: Entity): void {
 
 function hasArrived(entity: Entity): boolean {
   return Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y) <= RHYTHM.wanderArriveSlack;
+}
+
+function hasArrivedAtGoal(entity: Entity): boolean {
+  ensureRouteFields(entity);
+  return Math.hypot(goalXOf(entity) - entity.x, goalYOf(entity) - entity.y) <= RHYTHM.wanderArriveSlack;
+}
+
+function goalXOf(entity: Entity): number {
+  return typeof entity.goalX === "number" ? entity.goalX : entity.targetX;
+}
+
+function goalYOf(entity: Entity): number {
+  return typeof entity.goalY === "number" ? entity.goalY : entity.targetY;
+}
+
+function setDestination(world: World, entity: Entity, x: number, y: number, rng: () => number): void {
+  entity.goalX = x;
+  entity.goalY = y;
+  entity.route = planApproach(world, entity.x, entity.y, x, y, rng);
+  entity.routeStep = 0;
+  applyRouteTarget(entity);
+}
+
+function applyRouteTarget(entity: Entity): void {
+  const stop = entity.route && entity.routeStep < entity.route.length ? entity.route[entity.routeStep] : null;
+  if (stop) {
+    entity.targetX = stop.x;
+    entity.targetY = stop.y;
+    return;
+  }
+  entity.targetX = goalXOf(entity);
+  entity.targetY = goalYOf(entity);
+}
+
+function pullNextStop(entity: Entity): void {
+  ensureRouteFields(entity);
+  let guard = 0;
+  while (hasArrived(entity) && !hasArrivedAtGoal(entity) && guard < 8) {
+    guard += 1;
+    if (entity.route && entity.routeStep < entity.route.length) {
+      entity.routeStep += 1;
+      applyRouteTarget(entity);
+      resetStuck(entity);
+      continue;
+    }
+    entity.targetX = goalXOf(entity);
+    entity.targetY = goalYOf(entity);
+    break;
+  }
+}
+
+function ensureRouteFields(entity: Entity): void {
+  if (typeof entity.goalX !== "number") {
+    entity.goalX = entity.targetX;
+  }
+  if (typeof entity.goalY !== "number") {
+    entity.goalY = entity.targetY;
+  }
+  if (!Array.isArray(entity.route)) {
+    entity.route = null;
+  }
+  if (typeof entity.routeStep !== "number") {
+    entity.routeStep = 0;
+  }
 }
 
 function applyIdleLook(entity: Entity): void {
