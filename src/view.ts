@@ -14,7 +14,17 @@ import {
 } from "./sim/types";
 import { missionSummary } from "./sim/game";
 import { skinById } from "./profile";
+import { createForest } from "./view/forest";
+import { createHorizonBackdrop, HORIZON_MARGIN } from "./view/horizon";
 import { createSky } from "./view/sky";
+import {
+  boliTemplateReady,
+  createBoliCharacter,
+  isRiggedBoli,
+  preloadBoliCharacters,
+  syncBoliAnimation,
+  tickBoliAnimation,
+} from "./view/boliCharacter";
 
 const BOLI_COLOR = 0xe4d2b2;
 const BOLI_SHADE = 0xc9b48a;
@@ -71,8 +81,9 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 
   const scene = new THREE.Scene();
 
-  const fpsCamera = new THREE.PerspectiveCamera(70, 1, 0.2, 900);
+  const fpsCamera = new THREE.PerspectiveCamera(70, 1, 0.2, 1600);
   fpsCamera.rotation.order = "YXZ";
+  fpsCamera.position.set(410, VIEW.eyeHeight, 320);
   scene.add(fpsCamera);
   let eyeBlend = VIEW.eyeHeight;
 
@@ -95,6 +106,8 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   const centerNdc = new THREE.Vector2(0, 0);
 
   const sky = createSky(scene, fpsCamera);
+  const forest = createForest(scene);
+  const horizon = createHorizonBackdrop(scene);
   const hud = bindHud();
   const beacon = makeBeacon();
   beacon.visible = false;
@@ -102,6 +115,18 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   let builtWorldKey = "";
   let trackedHp = -1;
   let hurtUntil = 0;
+  let lastState: GameState | null = null;
+  let lastAnimAt = performance.now();
+
+  void preloadBoliCharacters()
+    .then(() => {
+      if (lastState) {
+        rebuild(lastState);
+      }
+    })
+    .catch((err) => {
+      console.warn("No se pudo cargar el Boli riggeado; se usa el procedural:", err);
+    });
 
   function ensureWorld(state: GameState): void {
     const key = `${state.world.width}x${state.world.height}`;
@@ -114,9 +139,29 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     }
     crateMeshes.clear();
     buildWorld(worldRoot, state);
+    forest.layout(state.world.width, state.world.height);
+    try {
+      horizon.layout(state.world.width, state.world.height);
+    } catch (err) {
+      console.warn("No se pudo crear el fondo del horizonte:", err);
+    }
+  }
+
+  function spawnPerson(color: number, hunter: boolean, seed?: string): THREE.Group {
+    if (boliTemplateReady()) {
+      return createBoliCharacter({
+        color,
+        hunter,
+        skinId: "skin1",
+        seed,
+        weapon: hunter ? makeShotgun(1) : undefined,
+      });
+    }
+    return makePerson(color, hunter ? HUNTER_SHADE : BOLI_SHADE, hunter);
   }
 
   function rebuild(state: GameState): void {
+    lastState = state;
     ensureWorld(state);
     while (characterRoot.children.length > 0) {
       characterRoot.remove(characterRoot.children[0]);
@@ -124,19 +169,18 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     boliMeshes.clear();
     extraMeshes.length = 0;
     for (const entity of state.entities) {
-      const mesh = makePerson(BOLI_COLOR, BOLI_SHADE, false);
+      const mesh = spawnPerson(BOLI_COLOR, false, entity.id);
       mesh.userData.entityId = entity.id;
       boliMeshes.set(entity.id, mesh);
       characterRoot.add(mesh);
     }
-    hunterMesh = makePerson(HUNTER_COLOR, HUNTER_SHADE, true);
+    hunterMesh = spawnPerson(HUNTER_COLOR, true, "hunter");
     characterRoot.add(hunterMesh);
-    for (const extra of state.extraHunters) {
-      void extra;
-      const mesh = makePerson(HUNTER_COLOR, HUNTER_SHADE, true);
+    state.extraHunters.forEach((_extra, index) => {
+      const mesh = spawnPerson(HUNTER_COLOR, true, `hunter-extra-${index}`);
       extraMeshes.push(mesh);
       characterRoot.add(mesh);
-    }
+    });
     trackedHp = -1;
     hurtUntil = 0;
   }
@@ -239,6 +283,9 @@ export function createView(canvas: HTMLCanvasElement): GameView {
         opts.crouch || localEntity.crouch,
       );
       viewmodel.visible = false;
+    } else {
+      placeCamera(state.world.width * 0.5, state.world.height * 0.5, 0, opts.yaw, opts.pitch, 0, false);
+      viewmodel.visible = false;
     }
 
     const localHp =
@@ -249,12 +296,32 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     trackedHp = localHp;
     hud.hurt.style.opacity = String(Math.max(0, (hurtUntil - state.clock) / 0.45));
 
+    forest.tick(Boolean(opts.paused));
     sky.update(state.timeLeft, state.worldMinute);
+    try {
+      horizon.sync(sky.atmosphere.fog, sky.atmosphere.horizon);
+    } catch (err) {
+      console.warn("No se pudo sincronizar el fondo del horizonte:", err);
+    }
     updateBeacon(beacon, state, opts);
     updateWaypoint(fpsCamera, hud, state, opts);
     updateHud(hud, state, opts, activeHunter, localEntity);
     shotFx.consume(state);
     shotFx.tick();
+    const now = performance.now();
+    const animDt = Math.min(0.05, (now - lastAnimAt) / 1000);
+    lastAnimAt = now;
+    if (!opts.paused) {
+      for (const mesh of boliMeshes.values()) {
+        tickBoliAnimation(mesh, animDt);
+      }
+      if (hunterMesh) {
+        tickBoliAnimation(hunterMesh, animDt);
+      }
+      for (const mesh of extraMeshes) {
+        tickBoliAnimation(mesh, animDt);
+      }
+    }
     renderer.render(scene, fpsCamera);
   }
 
@@ -294,21 +361,14 @@ export function createView(canvas: HTMLCanvasElement): GameView {
 
 function buildWorld(root: THREE.Group, state: GameState): void {
   const { width, height, pois, cover, houses, ramps } = state.world;
+  const groundPad = HORIZON_MARGIN + 6;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, height),
+    new THREE.PlaneGeometry(width + groundPad * 2, height + groundPad * 2),
     new THREE.MeshLambertMaterial({ color: 0x4f5c46 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(width * 0.5, 0, height * 0.5);
   root.add(ground);
-
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x5a5348 });
-  const wallH = 44;
-  const wallT = 8;
-  root.add(box(wallMat, width + wallT * 2, wallH, wallT, width * 0.5, wallH * 0.5, -wallT * 0.5));
-  root.add(box(wallMat, width + wallT * 2, wallH, wallT, width * 0.5, wallH * 0.5, height + wallT * 0.5));
-  root.add(box(wallMat, wallT, wallH, height, -wallT * 0.5, wallH * 0.5, height * 0.5));
-  root.add(box(wallMat, wallT, wallH, height, width + wallT * 0.5, wallH * 0.5, height * 0.5));
 
   const coverMat = new THREE.MeshLambertMaterial({ color: 0x4a4338 });
   for (const rect of cover) {
@@ -993,28 +1053,55 @@ function syncPerson(mesh: THREE.Group, entity: Entity, revealed: boolean, clock:
   const walking =
     !entity.downed &&
     (entity.state === "WANDER" || entity.state === "REACT" || (entity.state === "REGROUP" && !isHolding(entity)));
-  const bounce = walking && !crouch
+  const rigged = isRiggedBoli(mesh);
+  const bounce = walking && !crouch && !rigged
     ? Math.abs(Math.sin((entity.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   const stumble = entity.stumbleTtl > 0 ? Math.sin(clock * 18) * 0.18 : 0;
   mesh.position.set(entity.x, entity.z + bounce, entity.y);
-  mesh.rotation.x = entity.downed ? Math.PI / 2 : 0;
+  mesh.rotation.x = !rigged && entity.downed ? Math.PI / 2 : 0;
   mesh.rotation.y = Math.atan2(Math.cos(entity.angle), Math.sin(entity.angle));
   mesh.rotation.z = stumble;
-  poseLimbs(mesh, walking, entity.walkTime, entity.downed, crouch && !entity.downed);
-  const body = mesh.userData.body as THREE.Mesh;
-  const mat = body.material as THREE.MeshLambertMaterial;
-  mat.emissive.setHex(revealed ? 0x661111 : 0x000000);
+  if (rigged) {
+    syncBoliAnimation(mesh, {
+      walking,
+      crouch: crouch && !entity.downed,
+      downed: entity.downed,
+      walkTime: entity.walkTime,
+      x: entity.x,
+      y: entity.y,
+      id: entity.id,
+    });
+  } else {
+    poseLimbs(mesh, walking, entity.walkTime, entity.downed, crouch && !entity.downed);
+  }
+  const bodyMat = mesh.userData.bodyMat as THREE.MeshLambertMaterial | undefined;
+  if (bodyMat) {
+    bodyMat.emissive.setHex(revealed ? 0x661111 : 0x000000);
+  }
 }
 
 function syncHunter(mesh: THREE.Group, hunter: Hunter, crouch: boolean): void {
   const walking = hunter.state === "WANDER";
-  const bounce = walking && !crouch
+  const rigged = isRiggedBoli(mesh);
+  const bounce = walking && !crouch && !rigged
     ? Math.abs(Math.sin((hunter.walkTime / RHYTHM.walkBouncePeriod) * Math.PI * 2)) * RHYTHM.walkBounceAmp * 0.45
     : 0;
   mesh.position.set(hunter.x, hunter.z + bounce, hunter.y);
   mesh.rotation.y = Math.atan2(Math.cos(hunter.angle), Math.sin(hunter.angle));
-  poseLimbs(mesh, walking, hunter.walkTime, false, crouch);
+  if (rigged) {
+    syncBoliAnimation(mesh, {
+      walking,
+      crouch,
+      downed: false,
+      walkTime: hunter.walkTime,
+      x: hunter.x,
+      y: hunter.y,
+      id: hunter.controllerId ?? "hunter",
+    });
+  } else {
+    poseLimbs(mesh, walking, hunter.walkTime, false, crouch);
+  }
 }
 
 function isHolding(entity: Entity): boolean {

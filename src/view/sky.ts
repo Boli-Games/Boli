@@ -5,19 +5,20 @@ import { worldHour, worldMinuteFromTimeLeft } from "../sim/worldClock";
 const DAWN_START = 0.02;
 
 /**
- * Cartoon haze (not a hide wall).
- * `near` — fade starts here.
- * `far` — distance where mix equals `strength` (silhouettes still read).
- * `strength` — 0–1 peak opacity at `far`. Keep below 1 so nothing vanishes.
+ * Cartoon distance haze. The playable village stays clear; only far
+ * scenery (distant forest / horizon backdrop) picks up atmosphere.
+ * `near` — fade starts. Keep past combat and nearby NPCs.
+ * `far` — distance where mix equals `strength`.
+ * `strength` — 0–1 opacity at `far`. Below 1 so the village never whites out.
  */
 const FOG = {
-  nightNear: 165,
-  nightFar: 860,
+  nightNear: 185,
+  nightFar: 820,
   nightStrength: 0.48,
   nightColor: 0x3a5278,
-  dawnNear: 230,
-  dawnFar: 920,
-  dawnStrength: 0.38,
+  dawnNear: 240,
+  dawnFar: 880,
+  dawnStrength: 0.4,
   dawnColor: 0xf0c8a8,
 };
 
@@ -157,6 +158,7 @@ const _fill = new THREE.Color();
 
 export type SkyRig = {
   update: (timeLeft: number, worldMinute?: number) => void;
+  atmosphere: { fog: THREE.Color; horizon: THREE.Color };
 };
 
 /**
@@ -164,7 +166,11 @@ export type SkyRig = {
  * a hunter win at 8:00 keeps the night sky.
  */
 export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
-  const fog = new THREE.Fog(NIGHT.fog.clone(), FOG.nightNear, fogFarFor(FOG.nightNear, FOG.nightFar, FOG.nightStrength));
+  const fog = new THREE.Fog(
+    NIGHT.fog.clone(),
+    FOG.nightNear,
+    fogFarFor(FOG.nightNear, FOG.nightFar, FOG.nightStrength),
+  );
   const background = NIGHT.fog.clone();
   scene.fog = fog;
   scene.background = background;
@@ -209,6 +215,7 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
   const started = performance.now();
 
   return {
+    atmosphere: { fog: _fog, horizon: _skyHorizon },
     update(timeLeft: number, worldMinute?: number) {
       root.position.copy(camera.position);
       const minute = worldMinute ?? worldMinuteFromTimeLeft(timeLeft);
@@ -219,6 +226,7 @@ export function createSky(scene: THREE.Scene, camera: THREE.Camera): SkyRig {
       mixPalette(t);
       mixSkyDomeColors(t);
 
+      mixFogColor(t);
       background.copy(_fog);
       fog.color.copy(_fog);
       const near = mix(FOG.nightNear, FOG.dawnNear, t);
@@ -376,12 +384,26 @@ function mixPalette(t: number): void {
   _zenith.copy(NIGHT.zenith).lerp(DAWN.zenith, t);
   _horizon.copy(NIGHT.horizon).lerp(DAWN.horizon, t);
   _glow.copy(NIGHT.glow).lerp(DAWN.glow, t);
-  _fog.copy(NIGHT.fog).lerp(DAWN.fog, t);
   _hemiSky.copy(NIGHT.hemiSky).lerp(DAWN.hemiSky, t);
   _hemiGround.copy(NIGHT.hemiGround).lerp(DAWN.hemiGround, t);
   _moon.copy(NIGHT.moon).lerp(DAWN.moon, t);
   _sun.copy(NIGHT.sun).lerp(DAWN.sun, t);
   _fill.copy(NIGHT.fill).lerp(DAWN.fill, t);
+}
+
+/** Soft atmospheric tint. Stays in the night/dawn fog palette so daytime never washes white. */
+function mixFogColor(t: number): void {
+  _fog.copy(NIGHT.fog).lerp(DAWN.fog, t);
+  _fog.lerp(_skyLower, 0.14);
+}
+
+/**
+ * Stretch `fog.far` so the mix at `far` equals `strength` instead of going fully opaque.
+ * Three.js Fog uses a smoothstep from near→far; stretching keeps silhouettes readable.
+ */
+function fogFarFor(near: number, far: number, strength: number): number {
+  const s = Math.max(0.05, Math.min(0.99, strength));
+  return near + (far - near) / s;
 }
 
 /**
@@ -803,12 +825,6 @@ function drawMoon(): HTMLCanvasElement {
 
 function mix(a: number, b: number, t: number): number {
   return a + (b - a) * t;
-}
-
-/** Stretch Three.Fog so mix at `far` equals `strength` instead of 1. */
-function fogFarFor(near: number, far: number, strength: number): number {
-  const amount = clamp(strength, 0.05, 1);
-  return near + (far - near) / amount;
 }
 
 function clamp(value: number, min: number, max: number): number {
