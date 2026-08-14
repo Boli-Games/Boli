@@ -20,13 +20,17 @@ const PINE_URL = "/models/trees/cartoon-tree.glb";
 const LOG_URL = "/models/trees/cartoon-fallen-tree.glb";
 const LOG_PARTS = ["log_main_99", "log_inside.001_19", "log_inside_01_21", "moss_72"];
 
-type Kind = "a" | "b" | "pine";
+export type NatureTreeKind = "a" | "b" | "pine";
 
-type Prototype = {
+type Kind = NatureTreeKind;
+
+export type NaturePrototype = {
   geometry: THREE.BufferGeometry;
   material: THREE.MeshLambertMaterial;
   height: number;
 };
+
+type Prototype = NaturePrototype;
 
 type Placement = {
   kind: Kind;
@@ -42,11 +46,22 @@ export type ForestRig = {
   tick: (paused: boolean) => void;
 };
 
-type ForestAssets = {
+export type NatureAssets = {
   trees: Record<Kind, Prototype>;
   bush: Prototype | null;
   logParts: Prototype[];
 };
+
+type ForestAssets = NatureAssets;
+
+let naturePromise: Promise<NatureAssets> | null = null;
+
+export function loadNatureAssets(): Promise<NatureAssets> {
+  if (!naturePromise) {
+    naturePromise = loadPrototypes();
+  }
+  return naturePromise;
+}
 
 export function createForest(scene: THREE.Scene): ForestRig {
   const root = new THREE.Group();
@@ -66,7 +81,7 @@ export function createForest(scene: THREE.Scene): ForestRig {
     pending = { width, height };
     if (!loadStarted) {
       loadStarted = true;
-      void loadPrototypes()
+      void loadNatureAssets()
         .then((loaded) => {
           assets = loaded;
           if (pending) {

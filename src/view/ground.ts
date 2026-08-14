@@ -1,19 +1,29 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mulberry32 } from "../sim/rng";
 import type { House, Roof, World } from "../sim/types";
+import { loadNatureAssets, type NatureAssets } from "./forest";
 import { HORIZON_MARGIN } from "./horizon";
 
-const GRASS_TILE = 8.2;
-const DIRT_TILE = 9.4;
-const COBBLE_TILE = 7.6;
+const GRASS_TILE = 14.5;
+const DIRT_TILE = 12.8;
+const COBBLE_TILE = 10.4;
 const DIRT_Y = 0.016;
-const COBBLE_Y = 0.03;
-const PATH_FADE = 3.4;
+const COBBLE_Y = 0.028;
+const PATH_FADE = 5.4;
 const TUFT_SEED = 0x6ea55;
+const STONE_SEED = 0xc0bb1e;
+const NATURE_SEED = 0x51a11;
 
 const GRASS_URL = "/textures/ground/grass.png";
 const DIRT_URL = "/textures/ground/dirt.png";
 const COBBLE_URL = "/textures/ground/cobble.png";
+
+const PLAY_CLEARS = [
+  { x: 372, y: 318, r: 16 },
+  { x: 585, y: 78, r: 16 },
+  { x: 388, y: 458, r: 16 },
+];
 
 type Capsule = { ax: number; ay: number; bx: number; by: number; r: number };
 type Ring = { x: number; y: number; R: number; halfW: number };
@@ -21,10 +31,21 @@ type Disk = { x: number; y: number; r: number };
 type RectBlob = { kind: "rect"; x: number; y: number; w: number; h: number; rad: number; fade: number; noise: number };
 type CircleBlob = { kind: "circle"; x: number; y: number; r: number; fade: number; noise: number };
 type DirtBlob = RectBlob | CircleBlob;
+type PathNet = { capsules: Capsule[]; rings: Ring[]; disks: Disk[] };
 
 type SurfaceFns = {
   dirt: (x: number, y: number) => number;
   path: (x: number, y: number) => number;
+};
+
+type Stamp = {
+  x: number;
+  z: number;
+  yaw: number;
+  sx: number;
+  sy: number;
+  sz: number;
+  color?: number;
 };
 
 let buildId = 0;
@@ -44,17 +65,17 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
   grass.receiveShadow = true;
   root.add(grass);
 
-  const dirtMat = makeOverlayMaterial(0xe8d7b0);
+  const dirtMat = makeOverlayMaterial(0xe4d2ae);
   const dirtGeo = buildCoverageGeometry(
-    -6,
-    -6,
-    world.width + 6,
-    world.height + 6,
-    3,
+    -8,
+    -8,
+    world.width + 8,
+    world.height + 8,
+    2.6,
     (x, z) => {
       const d = surfaces.dirt(x, z);
       const p = surfaces.path(x, z);
-      return d * (1 - p * 0.82);
+      return d * (1 - p * 0.78);
     },
     DIRT_Y,
     DIRT_TILE,
@@ -66,13 +87,13 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
     root.add(dirt);
   }
 
-  const cobbleMat = makeOverlayMaterial(0xf2efe4);
+  const cobbleMat = makeOverlayMaterial(0xd7e0b8);
   const cobbleGeo = buildCoverageGeometry(
-    -6,
-    -6,
-    world.width + 6,
-    world.height + 6,
-    2.2,
+    -8,
+    -8,
+    world.width + 8,
+    world.height + 8,
+    2,
     (x, z) => surfaces.path(x, z),
     COBBLE_Y,
     COBBLE_TILE,
@@ -84,10 +105,9 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
     root.add(cobble);
   }
 
-  const tufts = makeGrassTufts(world, surfaces);
-  if (tufts) {
-    root.add(tufts);
-  }
+  addGrassField(root, world, surfaces);
+  addDirtPebbles(root, world, surfaces);
+  addPathStones(root, world, surfaces);
 
   void loadGroundTextures()
     .then((maps) => {
@@ -99,7 +119,7 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
       }
       maps.grass.repeat.set(planeW / GRASS_TILE, planeH / GRASS_TILE);
       grassMat.map = maps.grass;
-      grassMat.color.setHex(0xffffff);
+      grassMat.color.setHex(0x7d9658);
       grassMat.needsUpdate = true;
       dirtMat.map = maps.dirt;
       dirtMat.needsUpdate = true;
@@ -108,6 +128,17 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
     })
     .catch((err) => {
       console.warn("No se pudieron cargar las texturas del suelo:", err);
+    });
+
+  void loadNatureAssets()
+    .then((assets) => {
+      if (id !== buildId) {
+        return;
+      }
+      addVillageNature(root, world, surfaces, assets);
+    })
+    .catch((err) => {
+      console.warn("No se pudo cargar la vegetación del pueblo:", err);
     });
 }
 
@@ -127,37 +158,32 @@ function dirtBlobsFromWorld(world: World): DirtBlob[] {
   for (const house of world.houses) {
     blobs.push({
       kind: "rect",
-      x: house.x - 16,
-      y: house.y - 14,
-      w: house.w + 34,
-      h: house.h + 36,
-      rad: 24,
-      fade: 11,
-      noise: 7.5,
+      x: house.x - 14,
+      y: house.y - 12,
+      w: house.w + 30,
+      h: house.h + 32,
+      rad: 28,
+      fade: 14,
+      noise: 11,
     });
     const door = doorAnchor(house);
     blobs.push({
       kind: "circle",
-      x: door.x + door.nx * 10,
-      y: door.y + door.ny * 10,
-      r: 20,
-      fade: 9,
-      noise: 5,
+      x: door.x + door.nx * 11,
+      y: door.y + door.ny * 11,
+      r: 18,
+      fade: 12,
+      noise: 7,
     });
-    const corners = [
-      { x: house.x - 6, y: house.y - 4 },
-      { x: house.x + house.w + 8, y: house.y - 2 },
-      { x: house.x - 8, y: house.y + house.h + 8 },
-      { x: house.x + house.w + 10, y: house.y + house.h + 5 },
-    ];
-    for (const corner of corners) {
+    for (let i = 0; i < 8; i++) {
+      const edge = perimeterPoint(house.x - 10, house.y - 8, house.w + 20, house.h + 22, rng());
       blobs.push({
         kind: "circle",
-        x: corner.x + (rng() - 0.5) * 12,
-        y: corner.y + (rng() - 0.5) * 12,
-        r: 16 + rng() * 9,
-        fade: 8 + rng() * 3,
-        noise: 5 + rng() * 2.5,
+        x: edge.x + (rng() - 0.5) * 16,
+        y: edge.y + (rng() - 0.5) * 16,
+        r: 7 + rng() * 12,
+        fade: 9 + rng() * 6,
+        noise: 7 + rng() * 5,
       });
     }
   }
@@ -165,33 +191,36 @@ function dirtBlobsFromWorld(world: World): DirtBlob[] {
   for (const roof of extraRoofs(world)) {
     blobs.push({
       kind: "rect",
-      x: roof.x - 20,
-      y: roof.y - 16,
-      w: roof.w + 46,
-      h: roof.h + 34,
-      rad: 30,
-      fade: 12,
-      noise: 9,
+      x: roof.x - 18,
+      y: roof.y - 14,
+      w: roof.w + 42,
+      h: roof.h + 32,
+      rad: 34,
+      fade: 15,
+      noise: 12,
     });
-    blobs.push({
-      kind: "circle",
-      x: roof.x + roof.w * 0.2,
-      y: roof.y + roof.h * 0.55,
-      r: 36,
-      fade: 11,
-      noise: 7,
-    });
+    for (let i = 0; i < 6; i++) {
+      const edge = perimeterPoint(roof.x - 12, roof.y - 10, roof.w + 24, roof.h + 22, rng());
+      blobs.push({
+        kind: "circle",
+        x: edge.x + (rng() - 0.5) * 14,
+        y: edge.y + (rng() - 0.5) * 14,
+        r: 10 + rng() * 14,
+        fade: 11 + rng() * 5,
+        noise: 8,
+      });
+    }
   }
 
   const hillRamp = world.ramps.find((ramp) => !world.houses.some((house) => house.ramp === ramp));
   if (hillRamp) {
     blobs.push({
       kind: "circle",
-      x: hillRamp.x + 18,
+      x: hillRamp.x + 16,
       y: hillRamp.y + hillRamp.h * 0.5,
-      r: 30,
-      fade: 10,
-      noise: 6,
+      r: 28,
+      fade: 13,
+      noise: 8,
     });
   }
 
@@ -199,26 +228,40 @@ function dirtBlobsFromWorld(world: World): DirtBlob[] {
   if (statue) {
     blobs.push({
       kind: "circle",
-      x: statue.x + 2,
-      y: statue.y - 1,
-      r: 24,
-      fade: 9,
-      noise: 5.5,
+      x: statue.x + 3,
+      y: statue.y - 2,
+      r: 22,
+      fade: 12,
+      noise: 7,
+    });
+    blobs.push({
+      kind: "circle",
+      x: statue.x + 14,
+      y: statue.y + 11,
+      r: 11,
+      fade: 10,
+      noise: 6,
     });
   }
 
   return blobs;
 }
 
-function pathNetworkFromWorld(world: World): { capsules: Capsule[]; rings: Ring[]; disks: Disk[] } {
+function pathNetworkFromWorld(world: World): PathNet {
   const capsules: Capsule[] = [];
   const rings: Ring[] = [];
   const disks: Disk[] = [];
-  const hw = 6.7;
+  const hw = 6.8;
 
   const chain = (pts: { x: number; y: number }[], r = hw) => {
     for (let i = 0; i < pts.length - 1; i++) {
-      capsules.push({ ax: pts[i].x, ay: pts[i].y, bx: pts[i + 1].x, by: pts[i + 1].y, r });
+      capsules.push({
+        ax: pts[i].x,
+        ay: pts[i].y,
+        bx: pts[i + 1].x,
+        by: pts[i + 1].y,
+        r: r * (0.9 + ((i * 17) % 7) * 0.025),
+      });
     }
   };
 
@@ -232,7 +275,7 @@ function pathNetworkFromWorld(world: World): { capsules: Capsule[]; rings: Ring[
 
   if (fountain) {
     const ringR = fountain.radius + 6.2;
-    rings.push({ x: fountain.x, y: fountain.y, R: ringR, halfW: 6.5 });
+    rings.push({ x: fountain.x, y: fountain.y, R: ringR, halfW: 6.6 });
 
     if (casita) {
       const door = doorAnchor(casita);
@@ -265,7 +308,7 @@ function pathNetworkFromWorld(world: World): { capsules: Capsule[]; rings: Ring[
           { x: plaza.x + 18, y: plaza.y - 22 },
           { x: plaza.x + 4, y: plaza.y },
         ],
-        6.4,
+        6.5,
       );
       disks.push({ x: plaza.x, y: plaza.y, r: 21 });
     }
@@ -287,7 +330,7 @@ function pathNetworkFromWorld(world: World): { capsules: Capsule[]; rings: Ring[
         { x: 648, y: 366 },
         { x: hill.x + 36, y: hill.y - 6 },
       ],
-      6.3,
+      6.4,
     );
   }
 
@@ -303,17 +346,16 @@ function dirtCoverage(x: number, y: number, blobs: DirtBlob[]): number {
     } else {
       d = Math.hypot(x - blob.x, y - blob.y) - blob.r;
     }
-    d -= (valueNoise(x * 0.045 + 8.1, y * 0.045 + 3.4) - 0.5) * blob.noise;
+    const n =
+      (valueNoise(x * 0.038 + 8.1, y * 0.038 + 3.4) - 0.5) * blob.noise +
+      (valueNoise(x * 0.09 + 2.2, y * 0.09) - 0.5) * blob.noise * 0.45;
+    d -= n;
     cover = Math.max(cover, 1 - smoothstep(0, blob.fade, d));
   }
   return cover;
 }
 
-function pathCoverage(
-  x: number,
-  y: number,
-  net: { capsules: Capsule[]; rings: Ring[]; disks: Disk[] },
-): number {
+function pathCoverage(x: number, y: number, net: PathNet): number {
   let d = 1e9;
   for (const cap of net.capsules) {
     d = Math.min(d, sdCapsule(x, y, cap.ax, cap.ay, cap.bx, cap.by) - cap.r);
@@ -324,7 +366,7 @@ function pathCoverage(
   for (const disk of net.disks) {
     d = Math.min(d, Math.hypot(x - disk.x, y - disk.y) - disk.r);
   }
-  d -= (valueNoise(x * 0.08, y * 0.08) - 0.5) * 1.55;
+  d -= (valueNoise(x * 0.07, y * 0.07) - 0.5) * 2.6 + (valueNoise(x * 0.16 + 9, y * 0.16) - 0.5) * 1.4;
   return 1 - smoothstep(0, PATH_FADE, d);
 }
 
@@ -366,6 +408,569 @@ function doorAnchor(house: House): { x: number; y: number; nx: number; ny: numbe
     y: house.y + house.h,
   };
   return { x: mid.x, y: mid.y, nx: best.nx, ny: best.ny };
+}
+
+function addGrassField(root: THREE.Group, world: World, surfaces: SurfaceFns): void {
+  const rng = mulberry32(TUFT_SEED);
+  const short: Stamp[] = [];
+  const tall: Stamp[] = [];
+  const leafy: Stamp[] = [];
+
+  for (let z = 12; z < world.height - 12; z += 5.4) {
+    for (let x = 12; x < world.width - 12; x += 5.4) {
+      const px = x + (rng() - 0.5) * 4.6;
+      const pz = z + (rng() - 0.5) * 4.6;
+      if (blockedSolid(world, px, pz) || inKeepClear(px, pz, 10)) {
+        continue;
+      }
+      const path = surfaces.path(px, pz);
+      const dirt = surfaces.dirt(px, pz);
+      if (path > 0.34 || dirt > 0.68) {
+        continue;
+      }
+      const mix = grassMix(px, pz);
+      const near = structProximity(world, px, pz);
+      if (rng() < 0.9) {
+        short.push(grassStamp(px, pz, rng, 0.82, 1.18, 0.78, 1.12));
+      }
+      if (mix.tall > 0.42 && near < 0.82 && path < 0.2 && dirt < 0.48 && rng() < mix.tall) {
+        const tx = px + (rng() - 0.5) * 2.2;
+        const tz = pz + (rng() - 0.5) * 2.2;
+        if (!blockedSolid(world, tx, tz) && surfaces.path(tx, tz) < 0.2) {
+          tall.push(grassStamp(tx, tz, rng, 0.78, 1.12, 0.88, 1.28));
+        }
+      }
+      if (mix.leafy > 0.55 && near < 0.7 && path < 0.16 && dirt < 0.4 && rng() < mix.leafy * 0.7) {
+        const lx = px + (rng() - 0.5) * 3.4;
+        const lz = pz + (rng() - 0.5) * 3.4;
+        if (!blockedSolid(world, lx, lz) && surfaces.path(lx, lz) < 0.16) {
+          leafy.push(grassStamp(lx, lz, rng, 0.86, 1.22, 0.8, 1.16));
+        }
+      }
+    }
+  }
+
+  const grassMat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    fog: true,
+  });
+  const worldSphere = new THREE.Sphere(
+    new THREE.Vector3(world.width * 0.5, 0.7, world.height * 0.5),
+    Math.hypot(world.width, world.height) * 0.55,
+  );
+  addStamped(root, "grass-short", makeShortClump(), grassMat, short, 0.02, worldSphere);
+  addStamped(root, "grass-tall", makeTallClump(), grassMat, tall, 0.02, worldSphere);
+  addStamped(root, "grass-leafy", makeLeafyClump(), grassMat, leafy, 0.02, worldSphere);
+}
+
+function grassMix(x: number, z: number): { tall: number; leafy: number } {
+  const n = valueNoise(x * 0.01, z * 0.01);
+  const n2 = valueNoise(x * 0.023 + 18, z * 0.023);
+  return {
+    tall: smoothstep(0.28, 0.72, n) * 0.85,
+    leafy: smoothstep(0.48, 0.86, n2) * smoothstep(0.32, 0.7, n),
+  };
+}
+
+function grassStamp(
+  x: number,
+  z: number,
+  rng: () => number,
+  sx0: number,
+  sx1: number,
+  sy0: number,
+  sy1: number,
+): Stamp {
+  const sx = sx0 + rng() * (sx1 - sx0);
+  return {
+    x,
+    z,
+    yaw: rng() * Math.PI * 2,
+    sx,
+    sy: sy0 + rng() * (sy1 - sy0),
+    sz: sx * (0.9 + rng() * 0.2),
+  };
+}
+
+function makeShortClump(): THREE.BufferGeometry {
+  const blades = [
+    { yaw: 0.2, lean: 0.08, h: 0.46, w: 0.22, t: 0.09, ox: 0.04, oz: 0.02 },
+    { yaw: 0.95, lean: 0.12, h: 0.38, w: 0.2, t: 0.08, ox: -0.08, oz: 0.07 },
+    { yaw: 1.7, lean: 0.06, h: 0.5, w: 0.24, t: 0.1, ox: 0.1, oz: -0.05 },
+    { yaw: 2.5, lean: 0.14, h: 0.34, w: 0.18, t: 0.08, ox: -0.02, oz: -0.1 },
+    { yaw: 3.4, lean: 0.09, h: 0.42, w: 0.21, t: 0.09, ox: 0.08, oz: 0.09 },
+    { yaw: 4.3, lean: 0.11, h: 0.36, w: 0.19, t: 0.08, ox: -0.11, oz: 0.01 },
+  ];
+  return mergeBlades(blades, 0x1a4c24, 0x6aae3a, 0.5);
+}
+
+function makeTallClump(): THREE.BufferGeometry {
+  const blades = [
+    { yaw: 0.1, lean: 0.16, h: 1.42, w: 0.1, t: 0.055, ox: 0.02, oz: 0.01 },
+    { yaw: 1.35, lean: 0.22, h: 1.18, w: 0.08, t: 0.05, ox: -0.06, oz: 0.05 },
+    { yaw: 2.6, lean: 0.12, h: 1.55, w: 0.11, t: 0.05, ox: 0.05, oz: -0.04 },
+    { yaw: 4.1, lean: 0.28, h: 1.08, w: 0.09, t: 0.048, ox: -0.03, oz: -0.06 },
+  ];
+  return mergeBlades(blades, 0x163f1e, 0xb6e24c, 1.55);
+}
+
+function makeLeafyClump(): THREE.BufferGeometry {
+  const blades = [
+    { yaw: 0.05, lean: 0.42, h: 0.92, w: 0.34, t: 0.07, ox: 0.06, oz: 0.02 },
+    { yaw: 0.9, lean: 0.55, h: 0.78, w: 0.3, t: 0.065, ox: -0.08, oz: 0.1 },
+    { yaw: 1.85, lean: 0.38, h: 1.02, w: 0.38, t: 0.07, ox: 0.12, oz: -0.04 },
+    { yaw: 2.7, lean: 0.6, h: 0.7, w: 0.28, t: 0.06, ox: -0.04, oz: -0.12 },
+    { yaw: 3.6, lean: 0.48, h: 0.88, w: 0.32, t: 0.068, ox: 0.1, oz: 0.08 },
+    { yaw: 4.7, lean: 0.33, h: 0.96, w: 0.36, t: 0.07, ox: -0.1, oz: 0.0 },
+  ];
+  return mergeBlades(blades, 0x1c5226, 0x8fd24a, 1.02);
+}
+
+function mergeBlades(
+  blades: { yaw: number; lean: number; h: number; w: number; t: number; ox: number; oz: number }[],
+  baseHex: number,
+  tipHex: number,
+  maxH: number,
+): THREE.BufferGeometry {
+  const geos: THREE.BufferGeometry[] = [];
+  for (const blade of blades) {
+    const box = new THREE.BoxGeometry(blade.w, blade.h, blade.t, 1, 3, 1);
+    box.translate(0, blade.h * 0.5, 0);
+    box.rotateZ(blade.lean);
+    box.rotateY(blade.yaw);
+    box.translate(blade.ox, 0, blade.oz);
+    geos.push(box);
+  }
+  const merged = mergeGeometries(geos, false);
+  for (const geo of geos) {
+    geo.dispose();
+  }
+  if (!merged) {
+    throw new Error("No se pudo crear el mechón de césped");
+  }
+  colorByHeight(merged, baseHex, tipHex, maxH);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+function colorByHeight(geo: THREE.BufferGeometry, baseHex: number, tipHex: number, maxH: number): void {
+  const pos = geo.getAttribute("position");
+  const cols = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(baseHex);
+  const tip = new THREE.Color(tipHex);
+  const mix = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const t = clamp(pos.getY(i) / Math.max(0.001, maxH), 0, 1);
+    mix.copy(base).lerp(tip, t * t);
+    cols[i * 3] = mix.r;
+    cols[i * 3 + 1] = mix.g;
+    cols[i * 3 + 2] = mix.b;
+  }
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+}
+
+function addDirtPebbles(root: THREE.Group, world: World, surfaces: SurfaceFns): void {
+  const rng = mulberry32(STONE_SEED);
+  const round: Stamp[] = [];
+  const flat: Stamp[] = [];
+  for (let z = 14; z < world.height - 14; z += 7.2) {
+    for (let x = 14; x < world.width - 14; x += 7.2) {
+      const px = x + (rng() - 0.5) * 6.4;
+      const pz = z + (rng() - 0.5) * 6.4;
+      const dirt = surfaces.dirt(px, pz);
+      const path = surfaces.path(px, pz);
+      if (dirt < 0.38 || path > 0.55 || blockedSolid(world, px, pz)) {
+        continue;
+      }
+      if (rng() > 0.55) {
+        continue;
+      }
+      const stamp: Stamp = {
+        x: px,
+        z: pz,
+        yaw: rng() * Math.PI * 2,
+        sx: 0.7 + rng() * 0.7,
+        sy: 0.55 + rng() * 0.5,
+        sz: 0.7 + rng() * 0.7,
+        color: rng() < 0.35 ? 0x8a6a48 : 0x6e5640,
+      };
+      if (rng() < 0.55) {
+        round.push(stamp);
+      } else {
+        flat.push(stamp);
+      }
+    }
+  }
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: true });
+  const sphere = new THREE.Sphere(
+    new THREE.Vector3(world.width * 0.5, 0.2, world.height * 0.5),
+    Math.hypot(world.width, world.height) * 0.55,
+  );
+  addStamped(root, "dirt-pebble-round", new THREE.DodecahedronGeometry(0.42, 0), mat, round, 0.04, sphere, true);
+  addStamped(
+    root,
+    "dirt-pebble-flat",
+    new THREE.BoxGeometry(0.7, 0.22, 0.52),
+    mat,
+    flat,
+    0.05,
+    sphere,
+    true,
+  );
+}
+
+function addPathStones(root: THREE.Group, world: World, surfaces: SurfaceFns): void {
+  const rng = mulberry32(STONE_SEED ^ 0x45);
+  const pavers: Stamp[] = [];
+  const cobbles: Stamp[] = [];
+  const chips: Stamp[] = [];
+  for (let z = 10; z < world.height - 10; z += 1.7) {
+    for (let x = 10; x < world.width - 10; x += 1.7) {
+      const px = x + (rng() - 0.5) * 1.35;
+      const pz = z + (rng() - 0.5) * 1.35;
+      const path = surfaces.path(px, pz);
+      if (path < 0.1 || blockedSolid(world, px, pz)) {
+        continue;
+      }
+      const edge = path < 0.42;
+      if (edge && rng() > 0.38) {
+        continue;
+      }
+      if (!edge && rng() > 0.72) {
+        continue;
+      }
+      const mossy = rng() < 0.18;
+      const stamp: Stamp = {
+        x: px,
+        z: pz,
+        yaw: rng() * Math.PI * 2,
+        sx: 0.82 + rng() * 0.45,
+        sy: 0.7 + rng() * 0.55,
+        sz: 0.78 + rng() * 0.5,
+        color: mossy ? 0x6a7a48 : rng() < 0.5 ? 0x8a6d4c : 0x6d5640,
+      };
+      if (edge) {
+        chips.push(stamp);
+      } else if (rng() < 0.55) {
+        pavers.push(stamp);
+      } else {
+        cobbles.push(stamp);
+      }
+    }
+  }
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: true });
+  const sphere = new THREE.Sphere(
+    new THREE.Vector3(world.width * 0.5, 0.15, world.height * 0.5),
+    Math.hypot(world.width, world.height) * 0.55,
+  );
+  addStamped(root, "path-paver", new THREE.BoxGeometry(1.35, 0.2, 1.05), mat, pavers, COBBLE_Y + 0.06, sphere, true);
+  addStamped(
+    root,
+    "path-cobble",
+    new THREE.DodecahedronGeometry(0.58, 0),
+    mat,
+    cobbles,
+    COBBLE_Y + 0.05,
+    sphere,
+    true,
+  );
+  addStamped(
+    root,
+    "path-chip",
+    new THREE.IcosahedronGeometry(0.32, 0),
+    mat,
+    chips,
+    COBBLE_Y + 0.04,
+    sphere,
+    true,
+  );
+}
+
+function addVillageNature(root: THREE.Group, world: World, surfaces: SurfaceFns, assets: NatureAssets): void {
+  const rng = mulberry32(NATURE_SEED);
+  const treesA: Stamp[] = [];
+  const treesB: Stamp[] = [];
+  const bushes: Stamp[] = [];
+
+  for (let z = 22; z < world.height - 22; z += 36) {
+    for (let x = 22; x < world.width - 22; x += 36) {
+      const px = x + (rng() - 0.5) * 22;
+      const pz = z + (rng() - 0.5) * 22;
+      if (!canPlaceNature(world, px, pz, surfaces, "tree")) {
+        continue;
+      }
+      const dens = natureDensity(world, px, pz, surfaces);
+      if (dens < 0.2 || rng() > dens * 0.14) {
+        continue;
+      }
+      const kind = rng();
+      const s = 0.22 + rng() * 0.12;
+      const stamp: Stamp = {
+        x: px,
+        z: pz,
+        yaw: rng() * Math.PI * 2,
+        sx: s * (0.92 + rng() * 0.14),
+        sy: s * (0.88 + rng() * 0.2),
+        sz: s * (0.92 + rng() * 0.14),
+      };
+      if (kind < 0.62) {
+        treesA.push(stamp);
+      } else {
+        treesB.push(stamp);
+      }
+    }
+  }
+
+  if (assets.bush) {
+    for (let z = 16; z < world.height - 16; z += 16) {
+      for (let x = 16; x < world.width - 16; x += 16) {
+        const px = x + (rng() - 0.5) * 12;
+        const pz = z + (rng() - 0.5) * 12;
+        if (!canPlaceNature(world, px, pz, surfaces, "bush")) {
+          continue;
+        }
+        const dens = natureDensity(world, px, pz, surfaces);
+        const near = structProximity(world, px, pz);
+        const chance = near > 0.75 ? dens * 0.08 : dens * 0.16;
+        if (rng() > chance) {
+          continue;
+        }
+        const s = 0.52 + rng() * 0.34;
+        bushes.push({
+          x: px,
+          z: pz,
+          yaw: rng() * Math.PI * 2,
+          sx: s * (0.9 + rng() * 0.18),
+          sy: s * (0.82 + rng() * 0.28),
+          sz: s * (0.9 + rng() * 0.18),
+        });
+      }
+    }
+  }
+
+  const sphere = new THREE.Sphere(
+    new THREE.Vector3(world.width * 0.5, 8, world.height * 0.5),
+    Math.hypot(world.width, world.height) * 0.55,
+  );
+  addNatureStamped(root, "village-tree-a", assets.trees.a, treesA, sphere, true);
+  addNatureStamped(root, "village-tree-b", assets.trees.b, treesB, sphere, true);
+  if (assets.bush) {
+    addNatureStamped(root, "village-bush", assets.bush, bushes, sphere, false);
+  }
+}
+
+function natureDensity(world: World, x: number, z: number, surfaces: SurfaceFns): number {
+  if (surfaces.path(x, z) > 0.12 || surfaces.dirt(x, z) > 0.55) {
+    return 0;
+  }
+  const near = structProximity(world, x, z);
+  const edge = Math.min(x, z, world.width - x, world.height - z);
+  let dens = 0.38;
+  if (near > 0.78) {
+    dens = 0.12;
+  } else if (near > 0.55) {
+    dens = 0.22;
+  }
+  if (edge < 64 && near < 0.62) {
+    dens = Math.max(dens, 0.72);
+  }
+  if (surfaces.dirt(x, z) > 0.18 && surfaces.dirt(x, z) < 0.42) {
+    dens = Math.max(dens * 0.5, 0.16);
+  }
+  return dens;
+}
+
+function canPlaceNature(
+  world: World,
+  x: number,
+  z: number,
+  surfaces: SurfaceFns,
+  kind: "tree" | "bush",
+): boolean {
+  if (blockedSolid(world, x, z) || inKeepClear(x, z, kind === "tree" ? 20 : 14)) {
+    return false;
+  }
+  if (surfaces.path(x, z) > (kind === "tree" ? 0.08 : 0.12)) {
+    return false;
+  }
+  if (nearDoor(world, x, z, kind === "tree" ? 26 : 18)) {
+    return false;
+  }
+  for (const poi of world.pois) {
+    const clear = poi.kind === "fountain" ? poi.radius + 16 : poi.radius + 10;
+    if (Math.hypot(x - poi.x, z - poi.y) < clear) {
+      return false;
+    }
+  }
+  const pad = kind === "tree" ? 10 : 6;
+  for (const house of world.houses) {
+    if (x > house.x - pad && z > house.y - pad && x < house.x + house.w + pad && z < house.y + house.h + pad) {
+      return false;
+    }
+  }
+  for (const roof of extraRoofs(world)) {
+    if (x > roof.x - 6 && z > roof.y - 6 && x < roof.x + roof.w + 6 && z < roof.y + roof.h + 6) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function addNatureStamped(
+  root: THREE.Group,
+  name: string,
+  proto: { geometry: THREE.BufferGeometry; material: THREE.Material; height: number },
+  stamps: Stamp[],
+  sphere: THREE.Sphere,
+  castShadow: boolean,
+): void {
+  if (stamps.length === 0) {
+    return;
+  }
+  const geo = proto.geometry.clone();
+  const mesh = new THREE.InstancedMesh(geo, proto.material, stamps.length);
+  mesh.name = name;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = true;
+  mesh.boundingSphere = sphere;
+  const dummy = new THREE.Object3D();
+  const phases = new Float32Array(stamps.length);
+  stamps.forEach((stamp, i) => {
+    dummy.position.set(stamp.x, 0, stamp.z);
+    dummy.rotation.set(0, stamp.yaw, 0);
+    dummy.scale.set(stamp.sx, stamp.sy, stamp.sz);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    phases[i] = stamp.yaw;
+  });
+  if (proto.material.userData.wind) {
+    geo.setAttribute("windPhase", new THREE.InstancedBufferAttribute(phases, 1));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  root.add(mesh);
+}
+
+function addStamped(
+  root: THREE.Group,
+  name: string,
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+  stamps: Stamp[],
+  y: number,
+  sphere: THREE.Sphere,
+  instanceColor = false,
+): void {
+  if (stamps.length === 0) {
+    geo.dispose();
+    return;
+  }
+  const mesh = new THREE.InstancedMesh(geo, mat, stamps.length);
+  mesh.name = name;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = true;
+  mesh.boundingSphere = sphere;
+  const dummy = new THREE.Object3D();
+  const tint = new THREE.Color();
+  stamps.forEach((stamp, i) => {
+    dummy.position.set(stamp.x, y, stamp.z);
+    dummy.rotation.set(0, stamp.yaw, 0);
+    dummy.scale.set(stamp.sx, stamp.sy, stamp.sz);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    if (instanceColor) {
+      tint.setHex(stamp.color ?? 0xffffff);
+      mesh.setColorAt(i, tint);
+    }
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  if (instanceColor && mesh.instanceColor) {
+    mesh.instanceColor.needsUpdate = true;
+  }
+  root.add(mesh);
+}
+
+function blockedSolid(world: World, x: number, z: number): boolean {
+  for (const house of world.houses) {
+    if (x > house.x && z > house.y && x < house.x + house.w && z < house.y + house.h) {
+      return true;
+    }
+  }
+  for (const roof of extraRoofs(world)) {
+    if (x > roof.x && z > roof.y && x < roof.x + roof.w && z < roof.y + roof.h) {
+      return true;
+    }
+  }
+  for (const rect of world.cover) {
+    if (x > rect.x - 1 && z > rect.y - 1 && x < rect.x + rect.w + 1 && z < rect.y + rect.h + 1) {
+      return true;
+    }
+  }
+  for (const poi of world.pois) {
+    const extra = poi.kind === "fountain" ? 3 : 2;
+    if (Math.hypot(x - poi.x, z - poi.y) < poi.radius + extra) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function nearDoor(world: World, x: number, z: number, radius: number): boolean {
+  for (const house of world.houses) {
+    const door = doorAnchor(house);
+    if (Math.hypot(x - door.x, z - door.y) < radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function inKeepClear(x: number, z: number, extra = 0): boolean {
+  for (const spot of PLAY_CLEARS) {
+    if (Math.hypot(x - spot.x, z - spot.y) < spot.r + extra * 0.15) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function structProximity(world: World, x: number, z: number): number {
+  let best = 1;
+  for (const house of world.houses) {
+    const cx = clamp(x, house.x, house.x + house.w);
+    const cz = clamp(z, house.y, house.y + house.h);
+    const d = Math.hypot(x - cx, z - cz);
+    best = Math.min(best, 1 - smoothstep(8, 48, d));
+  }
+  for (const roof of extraRoofs(world)) {
+    const cx = clamp(x, roof.x, roof.x + roof.w);
+    const cz = clamp(z, roof.y, roof.y + roof.h);
+    const d = Math.hypot(x - cx, z - cz);
+    best = Math.min(best, 1 - smoothstep(8, 40, d));
+  }
+  return best;
+}
+
+function perimeterPoint(x: number, y: number, w: number, h: number, t: number): { x: number; y: number } {
+  const per = (w + h) * 2;
+  let d = ((t % 1) + 1) % 1 * per;
+  if (d < w) {
+    return { x: x + d, y };
+  }
+  d -= w;
+  if (d < h) {
+    return { x: x + w, y: y + d };
+  }
+  d -= h;
+  if (d < w) {
+    return { x: x + w - d, y: y + h };
+  }
+  d -= w;
+  return { x, y: y + h - d };
 }
 
 function buildCoverageGeometry(
@@ -478,159 +1083,6 @@ diffuseColor.a *= vCover;`,
   };
   mat.customProgramCacheKey = () => "boli-ground-overlay";
   return mat;
-}
-
-function makeGrassTufts(world: World, surfaces: SurfaceFns): THREE.InstancedMesh | null {
-  const placements = scatterTufts(world, surfaces, mulberry32(TUFT_SEED));
-  if (placements.length === 0) {
-    return null;
-  }
-  const geo = makeTuftGeometry();
-  const mat = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-    side: THREE.DoubleSide,
-    fog: true,
-  });
-  const mesh = new THREE.InstancedMesh(geo, mat, placements.length);
-  mesh.name = "ground-grass-tufts";
-  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  mesh.castShadow = false;
-  mesh.receiveShadow = true;
-  mesh.frustumCulled = true;
-  mesh.boundingSphere = new THREE.Sphere(
-    new THREE.Vector3(world.width * 0.5, 0.6, world.height * 0.5),
-    Math.hypot(world.width, world.height) * 0.55,
-  );
-  const dummy = new THREE.Object3D();
-  placements.forEach((place, i) => {
-    dummy.position.set(place.x, 0.02, place.z);
-    dummy.rotation.set(0, place.yaw, 0);
-    dummy.scale.setScalar(place.scale);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  return mesh;
-}
-
-function scatterTufts(
-  world: World,
-  surfaces: SurfaceFns,
-  rng: () => number,
-): { x: number; z: number; yaw: number; scale: number }[] {
-  const placed: { x: number; z: number; yaw: number; scale: number }[] = [];
-  const step = 28;
-  for (let z = 16; z < world.height - 16; z += step) {
-    for (let x = 16; x < world.width - 16; x += step) {
-      if (rng() > 0.58) {
-        continue;
-      }
-      const cx = x + (rng() - 0.5) * step * 0.65;
-      const cz = z + (rng() - 0.5) * step * 0.65;
-      if (blockedForTuft(world, cx, cz, surfaces)) {
-        continue;
-      }
-      const count = 3 + Math.floor(rng() * 4);
-      for (let i = 0; i < count; i++) {
-        const ang = rng() * Math.PI * 2;
-        const dist = rng() * 4.8;
-        const tx = cx + Math.cos(ang) * dist;
-        const tz = cz + Math.sin(ang) * dist;
-        if (blockedForTuft(world, tx, tz, surfaces)) {
-          continue;
-        }
-        placed.push({
-          x: tx,
-          z: tz,
-          yaw: rng() * Math.PI * 2,
-          scale: 0.72 + rng() * 0.78,
-        });
-      }
-    }
-  }
-  return placed;
-}
-
-function blockedForTuft(world: World, x: number, z: number, surfaces: SurfaceFns): boolean {
-  if (x < 10 || z < 10 || x > world.width - 10 || z > world.height - 10) {
-    return true;
-  }
-  if (surfaces.path(x, z) > 0.2 || surfaces.dirt(x, z) > 0.4) {
-    return true;
-  }
-  for (const house of world.houses) {
-    if (x > house.x - 3 && z > house.y - 3 && x < house.x + house.w + 3 && z < house.y + house.h + 3) {
-      return true;
-    }
-  }
-  for (const roof of extraRoofs(world)) {
-    if (x > roof.x && z > roof.y && x < roof.x + roof.w && z < roof.y + roof.h) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function makeTuftGeometry(): THREE.BufferGeometry {
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const normals: number[] = [];
-  const tip = new THREE.Color(0xb4e24c);
-  const mid = new THREE.Color(0x4c9a34);
-  const base = new THREE.Color(0x1d5726);
-
-  const blade = (yaw: number, lean: number, h: number, w: number) => {
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
-    const hx = c * w * 0.5;
-    const hz = s * w * 0.5;
-    const topX = c * lean * h;
-    const topZ = s * lean * h;
-    const b1x = -hx;
-    const b1z = -hz;
-    const b2x = hx;
-    const b2z = hz;
-    const t1x = topX - hx * 0.12;
-    const t1z = topZ - hz * 0.12;
-    const t2x = topX + hx * 0.12;
-    const t2z = topZ + hz * 0.12;
-    pushTri(positions, colors, normals, b1x, 0, b1z, b2x, 0, b2z, t2x, h, t2z, base, base, tip);
-    pushTri(positions, colors, normals, b1x, 0, b1z, t2x, h, t2z, t1x, h, t1z, base, tip, mid);
-  };
-
-  blade(0.15, 0.18, 1.05, 0.24);
-  blade(1.05, 0.26, 0.7, 0.18);
-  blade(2.2, 0.12, 1.22, 0.22);
-  blade(3.4, 0.3, 0.58, 0.16);
-  blade(4.55, 0.2, 0.92, 0.2);
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function pushTri(
-  pos: number[],
-  col: number[],
-  _nor: number[],
-  ax: number,
-  ay: number,
-  az: number,
-  bx: number,
-  by: number,
-  bz: number,
-  cx: number,
-  cy: number,
-  cz: number,
-  ca: THREE.Color,
-  cb: THREE.Color,
-  cc: THREE.Color,
-): void {
-  pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-  col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
 }
 
 function loadGroundTextures(): Promise<{ grass: THREE.Texture; dirt: THREE.Texture; cobble: THREE.Texture }> {
