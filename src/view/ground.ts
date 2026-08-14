@@ -57,7 +57,7 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
   const planeH = world.height + pad * 2;
   const surfaces = makeSurfaceFns(world);
 
-  const grassMat = new THREE.MeshLambertMaterial({ color: 0x4f5c46, fog: true });
+  const grassMat = new THREE.MeshLambertMaterial({ color: 0x8fbc58, fog: true });
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), grassMat);
   grass.name = "ground-grass";
   grass.rotation.x = -Math.PI / 2;
@@ -119,7 +119,7 @@ export function addGroundSurfaces(root: THREE.Group, world: World): void {
       }
       maps.grass.repeat.set(planeW / GRASS_TILE, planeH / GRASS_TILE);
       grassMat.map = maps.grass;
-      grassMat.color.setHex(0x7d9658);
+      grassMat.color.setHex(0xb6d66c);
       grassMat.needsUpdate = true;
       dirtMat.map = maps.dirt;
       dirtMat.needsUpdate = true;
@@ -244,7 +244,48 @@ function dirtBlobsFromWorld(world: World): DirtBlob[] {
     });
   }
 
+  addDecorativeDirtPatches(world, blobs);
   return blobs;
+}
+
+function addDecorativeDirtPatches(world: World, blobs: DirtBlob[]): void {
+  const rng = mulberry32(0xd17c4e);
+  const paths = pathNetworkFromWorld(world);
+  const step = 48;
+  for (let z = 28; z < world.height - 28; z += step) {
+    for (let x = 28; x < world.width - 28; x += step) {
+      const px = x + (rng() - 0.5) * 34;
+      const pz = z + (rng() - 0.5) * 34;
+      if (blockedSolid(world, px, pz) || inKeepClear(px, pz, 10) || nearDoor(world, px, pz, 24)) {
+        continue;
+      }
+      if (pathCoverage(px, pz, paths) > 0.12) {
+        continue;
+      }
+      const near = structProximity(world, px, pz);
+      const edge = Math.min(px, pz, world.width - px, world.height - pz);
+      let chance = 0.14;
+      if (near > 0.72) {
+        chance = 0.05;
+      } else if (edge < 72 && near < 0.55) {
+        chance = 0.34;
+      }
+      if (rng() > chance) {
+        continue;
+      }
+      const lobes = 2 + Math.floor(rng() * 4);
+      for (let i = 0; i < lobes; i++) {
+        blobs.push({
+          kind: "circle",
+          x: px + (rng() - 0.5) * 9,
+          y: pz + (rng() - 0.5) * 9,
+          r: 3 + rng() * 5.8,
+          fade: 6.5 + rng() * 4.5,
+          noise: 5.5 + rng() * 5,
+        });
+      }
+    }
+  }
 }
 
 function pathNetworkFromWorld(world: World): PathNet {
@@ -502,7 +543,7 @@ function makeShortClump(): THREE.BufferGeometry {
     { yaw: 3.4, lean: 0.09, h: 0.42, w: 0.21, t: 0.09, ox: 0.08, oz: 0.09 },
     { yaw: 4.3, lean: 0.11, h: 0.36, w: 0.19, t: 0.08, ox: -0.11, oz: 0.01 },
   ];
-  return mergeBlades(blades, 0x1a4c24, 0x6aae3a, 0.5);
+  return mergeBlades(blades, 0x3d8a34, 0xb0dc56, 0.5);
 }
 
 function makeTallClump(): THREE.BufferGeometry {
@@ -512,7 +553,7 @@ function makeTallClump(): THREE.BufferGeometry {
     { yaw: 2.6, lean: 0.12, h: 1.55, w: 0.11, t: 0.05, ox: 0.05, oz: -0.04 },
     { yaw: 4.1, lean: 0.28, h: 1.08, w: 0.09, t: 0.048, ox: -0.03, oz: -0.06 },
   ];
-  return mergeBlades(blades, 0x163f1e, 0xb6e24c, 1.55);
+  return mergeBlades(blades, 0x387f30, 0xc5ea62, 1.55);
 }
 
 function makeLeafyClump(): THREE.BufferGeometry {
@@ -524,7 +565,7 @@ function makeLeafyClump(): THREE.BufferGeometry {
     { yaw: 3.6, lean: 0.48, h: 0.88, w: 0.32, t: 0.068, ox: 0.1, oz: 0.08 },
     { yaw: 4.7, lean: 0.33, h: 0.96, w: 0.36, t: 0.07, ox: -0.1, oz: 0.0 },
   ];
-  return mergeBlades(blades, 0x1c5226, 0x8fd24a, 1.02);
+  return mergeBlades(blades, 0x428c36, 0xb8e054, 1.02);
 }
 
 function mergeBlades(
