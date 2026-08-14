@@ -131,20 +131,20 @@ function buildWalk(hipBind: THREE.Vector3): THREE.AnimationClip {
     chestQ.push([1.8 * Math.abs(s), -2.6 * s, 0]);
     neckQ.push([1.0 * c, 2.0 * s, 0]);
     headQ.push([1.4 * c, 2.8 * -s, 0]);
-    lShoulder.push([0, 0, -4 * c]);
-    rShoulder.push([0, 0, -4 * c]);
+    lShoulder.push([0, -10 * c, 5]);
+    rShoulder.push([0, -10 * c, -5]);
     lUpLeg.push([-38 * c, 0, 2 * s]);
     rUpLeg.push([38 * c, 0, -2 * s]);
     lLowLeg.push([18 + 42 * liftL, 0, 0]);
     rLowLeg.push([18 + 42 * liftR, 0, 0]);
     lFoot.push([-10 * c + 8 * liftL, 0, 0]);
     rFoot.push([10 * c + 8 * liftR, 0, 0]);
-    lArm.push([0, -30 * c, 32]);
-    rArm.push([0, -30 * c, -32]);
-    lFore.push([0, -8 * Math.max(0, -c), 18 + 8 * Math.max(0, c)]);
-    rFore.push([0, 8 * Math.max(0, c), -18 - 8 * Math.max(0, -c)]);
-    lHand.push([0, -4 * c, 0]);
-    rHand.push([0, -4 * c, 0]);
+    lArm.push([0, -52 * c, 34]);
+    rArm.push([0, -52 * c, -34]);
+    lFore.push([0, -18 * c, 22 + 10 * Math.max(0, -c)]);
+    rFore.push([0, -18 * c, -22 - 10 * Math.max(0, c)]);
+    lHand.push([0, -10 * c, 4 * Math.max(0, -c)]);
+    rHand.push([0, -10 * c, -4 * Math.max(0, c)]);
   }
 
   return new THREE.AnimationClip(CLIP_WALK, duration, [

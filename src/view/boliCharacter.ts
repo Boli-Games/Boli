@@ -3,6 +3,8 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { RHYTHM } from "../sim/types";
 import skin1Url from "../../models/bolis/boli_skin1_rigged.glb?url";
+import skin2Url from "../../models/bolis/boli_skin2_rigged.glb?url";
+import skin3Url from "../../models/bolis/boli_skin3_rigged.glb?url";
 import {
   CLIP_CROUCH_IDLE,
   CLIP_CROUCH_WALK,
@@ -12,8 +14,26 @@ import {
   buildBoliClips,
 } from "./boliClips";
 
-export const BOLI_SKIN1_ID = "skin1";
+export const BOLI_SKIN_IDS = ["skin1", "skin2", "skin3"] as const;
+export type BoliSkinId = (typeof BOLI_SKIN_IDS)[number];
+export const BOLI_SKIN1_ID: BoliSkinId = "skin1";
 export const BOLI_GAME_SCALE = 8.43;
+
+const SKIN_URLS: Record<BoliSkinId, string> = {
+  skin1: skin1Url,
+  skin2: skin2Url,
+  skin3: skin3Url,
+};
+
+export function boliSkinName(id: number | string | undefined | null): BoliSkinId {
+  if (id === 1 || id === "skin2" || id === "1") {
+    return "skin2";
+  }
+  if (id === 2 || id === "skin3" || id === "2") {
+    return "skin3";
+  }
+  return "skin1";
+}
 
 const MOVE_EPS = 2.2;
 const FADE = 0.22;
@@ -33,7 +53,6 @@ export type BoliCharacterUserData = {
   kind: "rigged";
   skinId: string;
   mixer: THREE.AnimationMixer;
-  actions: Map<string, THREE.AnimationAction>;
   currentClip: string;
   bodyMat: THREE.MeshLambertMaterial;
   weaponSocket: THREE.Object3D | null;
@@ -41,21 +60,134 @@ export type BoliCharacterUserData = {
   idleScale: number;
 };
 
-type Template = {
-  scene: THREE.Group;
-  clips: THREE.AnimationClip[];
-  lambert: THREE.MeshLambertMaterial;
+type TrackBinding = {
+  interpolant: THREE.Interpolant;
+  bone: THREE.Object3D;
+  prop: "quaternion" | "position";
 };
 
-let template: Template | null = null;
-let loading: Promise<Template> | null = null;
+type ClipBinding = {
+  clip: THREE.AnimationClip;
+  tracks: TrackBinding[];
+};
 
-function toLambert(src: THREE.Material): THREE.MeshLambertMaterial {
+type Animator = {
+  model: THREE.Object3D;
+  skins: THREE.SkinnedMesh[];
+  mixer: THREE.AnimationMixer;
+  bindings: Map<string, ClipBinding>;
+  current: string;
+  previous: string | null;
+  fade: number;
+  fadeLen: number;
+  times: Record<string, number>;
+  phase: number;
+  idleScale: number;
+  cadence: number;
+  speedScale: number;
+};
+
+type Template = {
+  skinId: BoliSkinId;
+  scene: THREE.Group;
+  lambert: THREE.MeshLambertMaterial;
+  vertexColorAlbedo: boolean;
+};
+
+const animators = new WeakMap<THREE.Object3D, Animator>();
+const _quat = new THREE.Quaternion();
+const _pos = new THREE.Vector3();
+
+const templates = new Map<BoliSkinId, Template>();
+let sharedClips: THREE.AnimationClip[] | null = null;
+let loading: Promise<void> | null = null;
+
+function toLambert(src: THREE.Material, opts: { facePaint: boolean; vertexColorAlbedo: boolean }): THREE.MeshLambertMaterial {
   const std = src as THREE.MeshStandardMaterial;
-  return new THREE.MeshLambertMaterial({
-    color: std.color?.clone() ?? new THREE.Color(0xe4d2b2),
+  const mat = new THREE.MeshLambertMaterial({
+    color: opts.vertexColorAlbedo ? new THREE.Color(0xffffff) : (std.color?.clone() ?? new THREE.Color(0xe4d2b2)),
     fog: true,
+    vertexColors: true,
+    flatShading: false,
   });
+  if (opts.facePaint) {
+    applyTongueShader(mat);
+  }
+  return mat;
+}
+
+const TONGUE_RED = new THREE.Color(0xdc1c28);
+const EYE_BLACK = new THREE.Color(0x111111);
+
+function isTongueVertex(x: number, y: number, z: number, ny: number): boolean {
+  return Math.abs(x) <= 0.125 && y >= 1.545 && y <= 1.62 && z >= 0.14 && ny < -0.4;
+}
+
+function isMouthInteriorVertex(x: number, y: number, z: number, ny: number): boolean {
+  if (Math.abs(x) > 0.13 || y < 1.555 || y > 1.642 || z < 0.09 || z > 0.29) {
+    return false;
+  }
+  if (ny > 0.4) {
+    return true;
+  }
+  return ny < -0.5 && z < 0.16;
+}
+
+function isEyeVertex(x: number, y: number, z: number): boolean {
+  if (z < 0.185 || y < 1.645 || y > 1.76) {
+    return false;
+  }
+  const left = ((x + 0.095) / 0.07) ** 2 + ((y - 1.7) / 0.055) ** 2 <= 1 && x < -0.04;
+  const right = ((x - 0.11) / 0.075) ** 2 + ((y - 1.68) / 0.05) ** 2 <= 1 && x > 0.04;
+  return left || right;
+}
+
+function paintTongueGeometry(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) {
+      return;
+    }
+    const pos = mesh.geometry.getAttribute("position");
+    const nrm = mesh.geometry.getAttribute("normal");
+    if (!pos) {
+      return;
+    }
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const ny = nrm ? nrm.getY(i) : 0;
+      if (isTongueVertex(x, y, z, ny)) {
+        colors[i * 3] = 1;
+        colors[i * 3 + 1] = 0;
+        colors[i * 3 + 2] = 0;
+      } else if (isMouthInteriorVertex(x, y, z, ny) || isEyeVertex(x, y, z)) {
+        colors[i * 3] = 0;
+        colors[i * 3 + 1] = 1;
+        colors[i * 3 + 2] = 0;
+      } else {
+        colors[i * 3] = 1;
+        colors[i * 3 + 1] = 1;
+        colors[i * 3 + 2] = 1;
+      }
+    }
+    mesh.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  });
+}
+
+function applyTongueShader(mat: THREE.MeshLambertMaterial): void {
+  mat.vertexColors = true;
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${TONGUE_RED.r}, ${TONGUE_RED.g}, ${TONGUE_RED.b}), 1.0 - vColor.g);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${EYE_BLACK.r}, ${EYE_BLACK.g}, ${EYE_BLACK.b}), 1.0 - vColor.r);`,
+    );
+  };
+  mat.customProgramCacheKey = () => "boli-face-tongue-eyes";
 }
 
 function hash01(text: string, salt = 0): number {
@@ -67,38 +199,56 @@ function hash01(text: string, salt = 0): number {
   return (h >>> 0) / 4294967296;
 }
 
-async function loadTemplate(): Promise<Template> {
-  if (template) {
-    return template;
+async function loadSkinTemplate(skinId: BoliSkinId): Promise<Template> {
+  const existing = templates.get(skinId);
+  if (existing) {
+    return existing;
+  }
+  const gltf = await new Promise<GLTF>((resolve, reject) => {
+    new GLTFLoader().load(SKIN_URLS[skinId], resolve, undefined, reject);
+  });
+  const vertexColorAlbedo = skinId !== "skin1";
+  gltf.scene.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) {
+      return;
+    }
+    const src = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    mesh.material = toLambert(src, { facePaint: skinId === "skin1", vertexColorAlbedo });
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+  });
+  if (skinId === "skin1") {
+    paintTongueGeometry(gltf.scene);
+    sharedClips = buildBoliClips(gltf.scene);
+  }
+  const lambert = findLambert(gltf.scene) ?? new THREE.MeshLambertMaterial({
+    color: vertexColorAlbedo ? 0xffffff : 0xe4d2b2,
+    fog: true,
+    vertexColors: true,
+    flatShading: false,
+  });
+  const template: Template = { skinId, scene: gltf.scene, lambert, vertexColorAlbedo };
+  templates.set(skinId, template);
+  return template;
+}
+
+async function loadAllTemplates(): Promise<void> {
+  if (templates.has("skin1") && templates.has("skin2") && templates.has("skin3")) {
+    return;
   }
   if (!loading) {
-    loading = new Promise((resolve, reject) => {
-      const loader = new GLTFLoader();
-      loader.load(
-        skin1Url,
-        (gltf: GLTF) => {
-          gltf.scene.traverse((obj) => {
-            const mesh = obj as THREE.Mesh;
-            if (!mesh.isMesh) {
-              return;
-            }
-            const src = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-            mesh.material = toLambert(src);
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-          });
-          const lambert = findLambert(gltf.scene) ?? new THREE.MeshLambertMaterial({ color: 0xe4d2b2, fog: true });
-          template = {
-            scene: gltf.scene,
-            clips: buildBoliClips(gltf.scene),
-            lambert,
-          };
-          resolve(template);
-        },
-        undefined,
-        reject,
-      );
-    });
+    loading = (async () => {
+      await loadSkinTemplate("skin1");
+      await Promise.all([
+        loadSkinTemplate("skin2").catch((err) => {
+          console.warn("No se pudo cargar Skin 2; se usa Skin 1:", err);
+        }),
+        loadSkinTemplate("skin3").catch((err) => {
+          console.warn("No se pudo cargar Skin 3; se usa Skin 1:", err);
+        }),
+      ]);
+    })();
   }
   return loading;
 }
@@ -114,60 +264,93 @@ function findLambert(root: THREE.Object3D): THREE.MeshLambertMaterial | null {
   return found;
 }
 
-function rebindSkeleton(root: THREE.Object3D): void {
-  const bones = new Map<string, THREE.Bone>();
-  root.traverse((obj) => {
-    const bone = obj as THREE.Bone;
-    if (bone.isBone) {
-      bones.set(bone.name, bone);
+function bindClip(model: THREE.Object3D, clip: THREE.AnimationClip): ClipBinding {
+  const tracks: TrackBinding[] = [];
+  for (const track of clip.tracks) {
+    const split = track.name.lastIndexOf(".");
+    const boneName = track.name.slice(0, split);
+    const prop = track.name.slice(split + 1);
+    const bone = model.getObjectByName(boneName);
+    if (!bone || (prop !== "quaternion" && prop !== "position")) {
+      continue;
     }
-  });
-  root.traverse((obj) => {
-    const mesh = obj as THREE.SkinnedMesh;
-    if (!mesh.isSkinnedMesh || !mesh.skeleton) {
-      return;
-    }
-    mesh.bindMode = "attached";
-    mesh.skeleton.bones = mesh.skeleton.bones.map((bone) => {
-      if (!bone) {
-        return bone;
-      }
-      return bones.get(bone.name) ?? bone;
+    tracks.push({
+      interpolant: (track as unknown as { createInterpolant: () => THREE.Interpolant }).createInterpolant(),
+      bone,
+      prop,
     });
-    mesh.bind(mesh.skeleton, mesh.bindMatrix);
-    mesh.normalizeSkinWeights();
-    mesh.frustumCulled = false;
-  });
+  }
+  return { clip, tracks };
+}
+
+function applyClip(binding: ClipBinding, time: number, weight: number): void {
+  if (weight <= 0.001 || binding.tracks.length === 0) {
+    return;
+  }
+  const duration = binding.clip.duration || 1;
+  const t = ((time % duration) + duration) % duration;
+  const replace = weight >= 0.999;
+  for (const track of binding.tracks) {
+    const value = track.interpolant.evaluate(t) as Float32Array;
+    if (track.prop === "quaternion") {
+      _quat.set(value[0], value[1], value[2], value[3]);
+      if (replace) {
+        track.bone.quaternion.copy(_quat);
+      } else {
+        track.bone.quaternion.slerp(_quat, weight);
+      }
+    } else {
+      _pos.set(value[0], value[1], value[2]);
+      if (replace) {
+        track.bone.position.copy(_pos);
+      } else {
+        track.bone.position.lerp(_pos, weight);
+      }
+    }
+  }
 }
 
 export function preloadBoliCharacters(): Promise<void> {
-  return loadTemplate().then(() => undefined);
+  return loadAllTemplates();
 }
 
 export function boliTemplateReady(): boolean {
-  return template !== null;
+  return templates.has("skin1") && sharedClips !== null;
 }
 
 export function createBoliCharacter(opts: {
   color: number;
   hunter: boolean;
-  skinId?: string;
+  skinId?: number | string;
   weapon?: THREE.Object3D;
   seed?: string;
 }): THREE.Group {
   const root = new THREE.Group();
-  if (!template) {
+  const requested = boliSkinName(opts.hunter ? "skin1" : opts.skinId);
+  const template = templates.get(requested) ?? templates.get("skin1");
+  if (!template || !sharedClips) {
     return root;
   }
 
   const model = cloneSkinned(template.scene);
   model.scale.setScalar(BOLI_GAME_SCALE);
-  rebindSkeleton(model);
+  const skins: THREE.SkinnedMesh[] = [];
   const bodyMat = template.lambert.clone();
-  bodyMat.color.setHex(opts.color);
+  if (template.skinId === "skin1") {
+    applyTongueShader(bodyMat);
+    bodyMat.color.setHex(opts.color);
+  } else {
+    bodyMat.color.setHex(0xffffff);
+    bodyMat.flatShading = false;
+  }
   model.traverse((obj) => {
     const mesh = obj as THREE.SkinnedMesh;
-    if (mesh.isMesh) {
+    if (mesh.isSkinnedMesh) {
+      mesh.bindMode = "attached";
+      mesh.frustumCulled = false;
+      mesh.material = bodyMat;
+      skins.push(mesh);
+    } else if (mesh.isMesh) {
       mesh.material = bodyMat;
       mesh.frustumCulled = false;
     }
@@ -175,8 +358,9 @@ export function createBoliCharacter(opts: {
   root.add(model);
 
   const mixer = new THREE.AnimationMixer(model);
-  const actions = new Map<string, THREE.AnimationAction>();
-  for (const clip of template.clips) {
+  const bindings = new Map<string, ClipBinding>();
+  const times: Record<string, number> = {};
+  for (const clip of sharedClips) {
     const action = mixer.clipAction(clip);
     if (clip.name === CLIP_DOWNED) {
       action.setLoop(THREE.LoopOnce, 1);
@@ -185,8 +369,10 @@ export function createBoliCharacter(opts: {
       action.setLoop(THREE.LoopRepeat, Infinity);
     }
     action.enabled = true;
-    action.weight = 0;
-    actions.set(clip.name, action);
+    action.weight = clip.name === CLIP_IDLE ? 1 : 0;
+    action.play();
+    bindings.set(clip.name, bindClip(model, clip));
+    times[clip.name] = 0;
   }
 
   const weaponSocket = model.getObjectByName("WeaponSocket") ?? null;
@@ -201,20 +387,40 @@ export function createBoliCharacter(opts: {
   const phase = hash01(seed, 1);
   const idleScale = 0.82 + hash01(seed, 2) * 0.36;
   const cadence = 0.9 + hash01(seed, 3) * 0.2;
-  const idle = actions.get(CLIP_IDLE);
-  if (idle) {
-    idle.weight = 1;
-    idle.time = phase * idle.getClip().duration;
-    idle.timeScale = idleScale;
-    idle.play();
+  const idleBind = bindings.get(CLIP_IDLE);
+  if (idleBind) {
+    times[CLIP_IDLE] = phase * idleBind.clip.duration;
+    applyClip(idleBind, times[CLIP_IDLE], 1);
+    model.updateMatrixWorld(true);
+    for (const skin of skins) {
+      skin.skeleton.update();
+    }
   }
-  mixer.update(0);
+  if (skins.length === 0 || (idleBind && idleBind.tracks.length === 0)) {
+    console.warn("Boli: el skeleton no se enlazó; skin=", template.skinId, "skins=", skins.length, "tracks=", idleBind?.tracks.length ?? 0);
+  }
+
+  const animator: Animator = {
+    model,
+    skins,
+    mixer,
+    bindings,
+    current: CLIP_IDLE,
+    previous: null,
+    fade: 1,
+    fadeLen: FADE,
+    times,
+    phase,
+    idleScale,
+    cadence,
+    speedScale: 1,
+  };
+  animators.set(root, animator);
 
   const data: BoliCharacterUserData = {
     kind: "rigged",
-    skinId: opts.skinId ?? BOLI_SKIN1_ID,
+    skinId: requested,
     mixer,
-    actions,
     currentClip: CLIP_IDLE,
     bodyMat,
     weaponSocket,
@@ -222,21 +428,20 @@ export function createBoliCharacter(opts: {
     idleScale,
   };
   Object.assign(root.userData, data);
-  root.userData._cadence = cadence;
   root.userData.bodyMat = bodyMat;
   root.userData.mixer = mixer;
   return root;
 }
 
 export function isRiggedBoli(mesh: THREE.Object3D): boolean {
-  return mesh.userData.kind === "rigged";
+  return mesh.userData.kind === "rigged" || animators.has(mesh);
 }
 
 export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void {
-  if (!isRiggedBoli(mesh)) {
+  const animator = animators.get(mesh);
+  if (!animator) {
     return;
   }
-  ensurePhase(mesh, loco.id);
   const speed = sampleMoveSpeed(mesh, loco.x, loco.y);
   const moving = !loco.downed && (loco.walking || speed > MOVE_EPS);
   const clip = loco.downed
@@ -248,25 +453,66 @@ export function syncBoliAnimation(mesh: THREE.Group, loco: BoliLocomotion): void
         : moving
           ? CLIP_WALK
           : CLIP_IDLE;
-  fadeTo(mesh, clip, loco);
-  applyWalkTiming(mesh, loco, clip, speed);
+  if (clip === CLIP_WALK || clip === CLIP_CROUCH_WALK) {
+    animator.speedScale = THREE.MathUtils.clamp(speed / RHYTHM.speed, 0.35, 1.65) * animator.cadence;
+  }
+  if (animator.current !== clip) {
+    animator.previous = animator.current;
+    animator.current = clip;
+    animator.fade = 0;
+    animator.fadeLen = clip === CLIP_DOWNED ? DOWNED_FADE : FADE;
+    const bound = animator.bindings.get(clip);
+    if (bound && (clip === CLIP_WALK || clip === CLIP_CROUCH_WALK)) {
+      animator.times[clip] = (loco.walkTime * 0.37 + animator.phase * bound.clip.duration) % bound.clip.duration;
+    }
+    if (clip === CLIP_DOWNED) {
+      animator.times[clip] = 0;
+    }
+    mesh.userData.currentClip = clip;
+  }
 }
 
 export function tickBoliAnimation(mesh: THREE.Group, dt: number): void {
-  const mixer = mesh.userData.mixer as THREE.AnimationMixer | undefined;
-  if (!mixer || dt < 0) {
+  const animator = animators.get(mesh);
+  if (!animator) {
     return;
   }
-  mixer.update(dt > 0 ? dt : 0);
-}
+  const step = Math.max(0, dt);
+  animator.mixer.update(step);
 
-function ensurePhase(mesh: THREE.Group, id?: string): void {
-  if (mesh.userData.phase !== undefined || !id) {
+  const current = animator.bindings.get(animator.current);
+  if (!current) {
     return;
   }
-  mesh.userData.phase = hash01(id, 1);
-  mesh.userData.idleScale = 0.82 + hash01(id, 2) * 0.36;
-  mesh.userData._cadence = 0.9 + hash01(id, 3) * 0.2;
+  const loc = animator.current === CLIP_WALK || animator.current === CLIP_CROUCH_WALK;
+  const scale = loc ? animator.speedScale : animator.current === CLIP_IDLE || animator.current === CLIP_CROUCH_IDLE
+    ? animator.idleScale
+    : 1;
+  animator.times[animator.current] = (animator.times[animator.current] ?? 0) + step * scale;
+  if (animator.current === CLIP_DOWNED) {
+    animator.times[CLIP_DOWNED] = Math.min(animator.times[CLIP_DOWNED], current.clip.duration);
+  }
+
+  if (animator.previous && animator.fade < 1) {
+    animator.fade = Math.min(1, animator.fade + step / animator.fadeLen);
+    const prev = animator.bindings.get(animator.previous);
+    if (prev) {
+      const prevLoc = animator.previous === CLIP_WALK || animator.previous === CLIP_CROUCH_WALK;
+      animator.times[animator.previous] += step * (prevLoc ? animator.speedScale : animator.idleScale);
+      applyClip(prev, animator.times[animator.previous], 1);
+    }
+    applyClip(current, animator.times[animator.current], animator.fade);
+    if (animator.fade >= 1) {
+      animator.previous = null;
+    }
+  } else {
+    applyClip(current, animator.times[animator.current], 1);
+  }
+
+  animator.model.updateMatrixWorld(true);
+  for (const skin of animator.skins) {
+    skin.skeleton.update();
+  }
 }
 
 function sampleMoveSpeed(mesh: THREE.Group, x: number, y: number): number {
@@ -288,64 +534,4 @@ function sampleMoveSpeed(mesh: THREE.Group, x: number, y: number): number {
   mesh.userData._animY = y;
   mesh.userData._animSpeed = speed;
   return speed;
-}
-
-function applyWalkTiming(mesh: THREE.Group, loco: BoliLocomotion, clipName: string, speed: number): void {
-  if (clipName !== CLIP_WALK && clipName !== CLIP_CROUCH_WALK) {
-    mesh.userData._walkClip = "";
-    return;
-  }
-  const actions = mesh.userData.actions as Map<string, THREE.AnimationAction>;
-  const action = actions.get(clipName);
-  if (!action) {
-    return;
-  }
-  const cadence = Number(mesh.userData._cadence ?? 1);
-  const rawScale = THREE.MathUtils.clamp(speed / RHYTHM.speed, 0.35, 1.65) * cadence;
-  const prev = Number(mesh.userData._walkScale ?? rawScale);
-  const speedScale = prev * 0.7 + rawScale * 0.3;
-  mesh.userData._walkScale = speedScale;
-  action.paused = false;
-  action.timeScale = speedScale;
-  if (mesh.userData._walkClip !== clipName) {
-    const duration = action.getClip().duration;
-    const phase = Number(mesh.userData.phase ?? 0) * duration;
-    action.time = (loco.walkTime * 0.37 + phase) % duration;
-    mesh.userData._walkClip = clipName;
-  }
-}
-
-function fadeTo(mesh: THREE.Group, clipName: string, loco: BoliLocomotion): void {
-  if (mesh.userData.currentClip === clipName) {
-    return;
-  }
-  const actions = mesh.userData.actions as Map<string, THREE.AnimationAction> | undefined;
-  if (!actions) {
-    return;
-  }
-  const next = actions.get(clipName);
-  if (!next) {
-    return;
-  }
-  const prev = actions.get(mesh.userData.currentClip as string);
-  const locomotion = clipName === CLIP_WALK || clipName === CLIP_CROUCH_WALK;
-  const fade = clipName === CLIP_DOWNED ? DOWNED_FADE : FADE;
-  next.enabled = true;
-  next.paused = false;
-  next.play();
-  if (clipName === CLIP_DOWNED) {
-    next.reset();
-    next.weight = 1;
-  } else if (locomotion) {
-    const duration = next.getClip().duration;
-    next.time = (loco.walkTime * 0.37 + Number(mesh.userData.phase ?? 0) * duration) % duration;
-  } else {
-    next.timeScale = Number(mesh.userData.idleScale ?? 1);
-  }
-  if (prev && prev !== next) {
-    prev.crossFadeTo(next, fade, false);
-  } else {
-    next.weight = 1;
-  }
-  mesh.userData.currentClip = clipName;
 }

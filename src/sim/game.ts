@@ -58,6 +58,7 @@ export function createGame(opts: CreateGameOpts | (() => number) = {}): GameStat
       controllerId,
       isolationTimer: 0,
       crouch: false,
+      skinId: i % 3,
     };
     entity.lookAngle = entity.angle;
     if (!entity.isPlayer) {
@@ -408,6 +409,14 @@ export function applySnapshot(
   state.world = world;
   if (typeof state.worldMinute !== "number") {
     state.worldMinute = worldMinuteFromTimeLeft(state.timeLeft);
+  }
+  for (const entity of state.entities) {
+    if (typeof entity.skinId !== "number") {
+      const n = Number.parseInt(String(entity.id).replace(/\D/g, ""), 10);
+      entity.skinId = Number.isFinite(n) ? n % 3 : 0;
+    } else {
+      entity.skinId = ((entity.skinId % 3) + 3) % 3;
+    }
   }
   if (keptHunterCopy && localId) {
     const next = hunterForController(state, localId);

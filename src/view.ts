@@ -25,6 +25,7 @@ import {
   preloadBoliCharacters,
   syncBoliAnimation,
   tickBoliAnimation,
+  boliSkinName,
 } from "./view/boliCharacter";
 
 const BOLI_COLOR = 0xe4d2b2;
@@ -150,12 +151,12 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     }
   }
 
-  function spawnPerson(color: number, hunter: boolean, seed?: string): THREE.Group {
+  function spawnPerson(color: number, hunter: boolean, seed?: string, skinId: number | string = 0): THREE.Group {
     if (boliTemplateReady()) {
       return createBoliCharacter({
         color,
         hunter,
-        skinId: "skin1",
+        skinId,
         seed,
         weapon: hunter ? makeShotgun(1) : undefined,
       });
@@ -172,7 +173,7 @@ export function createView(canvas: HTMLCanvasElement): GameView {
     boliMeshes.clear();
     extraMeshes.length = 0;
     for (const entity of state.entities) {
-      const mesh = spawnPerson(BOLI_COLOR, false, entity.id);
+      const mesh = spawnPerson(BOLI_COLOR, false, entity.id, entity.skinId ?? 0);
       mesh.userData.entityId = entity.id;
       boliMeshes.set(entity.id, mesh);
       characterRoot.add(mesh);
@@ -220,7 +221,14 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   function render(state: GameState, opts: ViewOpts): void {
     ensureWorld(state);
     syncCrates(worldRoot, crateMeshes, state);
-    if (boliMeshes.size !== state.entities.length || extraMeshes.length !== state.extraHunters.length) {
+    if (
+      boliMeshes.size !== state.entities.length ||
+      extraMeshes.length !== state.extraHunters.length ||
+      state.entities.some((entity) => {
+        const mesh = boliMeshes.get(entity.id);
+        return !mesh || mesh.userData.skinId !== boliSkinName(entity.skinId);
+      })
+    ) {
       rebuild(state);
     }
 

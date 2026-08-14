@@ -128,5 +128,17 @@
       "RightLowerLeg": 246,
       "RightFoot": 213
     }
+  },
+  "skin2": {
+    "source": "banano_gay.glb",
+    "triangles": 7052,
+    "vertices": 3261,
+    "note": "Decimated from ~500k tris. Same boli-humanoid-v1 skeleton as Skin 1. Vertex-color albedo (no baked emissive)."
+  },
+  "skin3": {
+    "source": "boli_granjero_pintao.glb",
+    "triangles": 6506,
+    "vertices": 3049,
+    "note": "Decimated from 20k tris. Same boli-humanoid-v1 skeleton as Skin 1. Vertex-color albedo (no baked emissive)."
   }
 }

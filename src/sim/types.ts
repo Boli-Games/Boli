@@ -88,6 +88,7 @@ export type Entity = {
   controllerId: string | null;
   isolationTimer: number;
   crouch: boolean;
+  skinId: number;
 };
 
 export type Hunter = {

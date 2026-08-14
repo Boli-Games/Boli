@@ -1,0 +1,92 @@
+{
+  "skin2": {
+    "out": "C:\\Users\\valle\\Desktop\\Juegos\\Boli\\Boli\\models\\bolis\\boli_skin2_rigged.glb",
+    "bytes": 244480,
+    "verts": 3261,
+    "tris": 7052,
+    "influence": {
+      "Root": 0,
+      "Hips": 905,
+      "Spine": 1741,
+      "Chest": 739,
+      "Neck": 322,
+      "Head": 237,
+      "LeftShoulder": 61,
+      "LeftUpperArm": 123,
+      "LeftLowerArm": 66,
+      "LeftHand": 38,
+      "RightShoulder": 59,
+      "RightUpperArm": 121,
+      "RightLowerArm": 65,
+      "RightHand": 37,
+      "WeaponSocket": 0,
+      "LeftUpperLeg": 317,
+      "LeftLowerLeg": 439,
+      "LeftFoot": 463,
+      "RightUpperLeg": 318,
+      "RightLowerLeg": 440,
+      "RightFoot": 462
+    },
+    "checks": {
+      "rightArmLifts": 0.43357292361970756,
+      "leftArmLifts": 0.43533257428443795,
+      "leftLegForwardZ": 0.4345684037527695,
+      "rightFootStay": 0,
+      "crouchLowersHead": 0.3545129444537094,
+      "downedHeight": 0.6890278057995936,
+      "idleHeight": 1.8922235913643302
+    },
+    "pass": {
+      "rightArmIsolated": true,
+      "leftArmIsolated": true,
+      "legsIsolated": true,
+      "crouchWorks": true,
+      "downedWorks": true
+    }
+  },
+  "skin3": {
+    "out": "C:\\Users\\valle\\Desktop\\Juegos\\Boli\\Boli\\models\\bolis\\boli_skin3_rigged.glb",
+    "bytes": 228464,
+    "verts": 3049,
+    "tris": 6506,
+    "influence": {
+      "Root": 0,
+      "Hips": 408,
+      "Spine": 262,
+      "Chest": 139,
+      "Neck": 1433,
+      "Head": 1433,
+      "LeftShoulder": 70,
+      "LeftUpperArm": 133,
+      "LeftLowerArm": 93,
+      "LeftHand": 51,
+      "RightShoulder": 70,
+      "RightUpperArm": 136,
+      "RightLowerArm": 85,
+      "RightHand": 51,
+      "WeaponSocket": 0,
+      "LeftUpperLeg": 160,
+      "LeftLowerLeg": 431,
+      "LeftFoot": 372,
+      "RightUpperLeg": 190,
+      "RightLowerLeg": 416,
+      "RightFoot": 359
+    },
+    "checks": {
+      "rightArmLifts": 0.2915700985905043,
+      "leftArmLifts": 0.28870465086091324,
+      "leftLegForwardZ": 0.4267301054388609,
+      "rightFootStay": 0,
+      "crouchLowersHead": 0.38320941561215993,
+      "downedHeight": 0.8291693126383906,
+      "idleHeight": 1.896415712143223
+    },
+    "pass": {
+      "rightArmIsolated": true,
+      "leftArmIsolated": true,
+      "legsIsolated": true,
+      "crouchWorks": true,
+      "downedWorks": true
+    }
+  }
+}
