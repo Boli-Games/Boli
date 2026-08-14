@@ -71,6 +71,7 @@ function bindUnlock(): void {
     void result
       .then(() => {
         document.removeEventListener("pointerdown", unlock);
+        document.removeEventListener("touchstart", unlock);
         document.removeEventListener("keydown", unlock);
         unlocking = false;
       })
@@ -79,6 +80,7 @@ function bindUnlock(): void {
       });
   };
   document.addEventListener("pointerdown", unlock);
+  document.addEventListener("touchstart", unlock, { passive: true });
   document.addEventListener("keydown", unlock);
 }
 

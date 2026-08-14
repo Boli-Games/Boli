@@ -1,3 +1,5 @@
+import type { TouchControls, TouchFrame } from "./touchControls";
+
 export type FrameInput = {
   forward: number;
   strafe: number;
@@ -10,9 +12,27 @@ export type FrameInput = {
   mouseDx: number;
   mouseDy: number;
   pointerLocked: boolean;
+  lookActive: boolean;
 };
 
-export function createInput(canvas: HTMLCanvasElement): {
+const EMPTY_TOUCH: TouchFrame = {
+  forward: 0,
+  strafe: 0,
+  sprint: false,
+  crouch: false,
+  boliMode: false,
+  pause: false,
+  shootPresses: 0,
+  lookDx: 0,
+  lookDy: 0,
+  stickActive: false,
+  sessionActive: false,
+};
+
+export function createInput(
+  canvas: HTMLCanvasElement,
+  touch?: TouchControls,
+): {
   read: () => FrameInput;
   isPointerLocked: () => boolean;
   setEnabled: (value: boolean) => void;
@@ -80,6 +100,7 @@ export function createInput(canvas: HTMLCanvasElement): {
     isPointerLocked: () => document.pointerLockElement === canvas,
     setEnabled(value: boolean) {
       enabled = value;
+      touch?.setEnabled(value);
       if (!value) {
         keys.clear();
         clickQueued = null;
@@ -89,20 +110,23 @@ export function createInput(canvas: HTMLCanvasElement): {
       }
     },
     read(): FrameInput {
-      const strafe = axis(keys.has("KeyA") || keys.has("ArrowLeft"), keys.has("KeyD") || keys.has("ArrowRight"));
-      const forward = axis(keys.has("KeyS") || keys.has("ArrowDown"), keys.has("KeyW") || keys.has("ArrowUp"));
+      const touchFrame = touch?.read() ?? EMPTY_TOUCH;
+      const keyStrafe = axis(keys.has("KeyA") || keys.has("ArrowLeft"), keys.has("KeyD") || keys.has("ArrowRight"));
+      const keyForward = axis(keys.has("KeyS") || keys.has("ArrowDown"), keys.has("KeyW") || keys.has("ArrowUp"));
+      const pointerLocked = document.pointerLockElement === canvas;
       const input: FrameInput = {
-        forward,
-        strafe,
-        boliMode: keys.has("KeyQ"),
-        sprint: keys.has("ShiftLeft") || keys.has("ShiftRight"),
-        crouch: keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC"),
-        pause: pauseQueued,
+        forward: touchFrame.stickActive ? touchFrame.forward : keyForward,
+        strafe: touchFrame.stickActive ? touchFrame.strafe : keyStrafe,
+        boliMode: keys.has("KeyQ") || touchFrame.boliMode,
+        sprint: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchFrame.sprint,
+        crouch: keys.has("ControlLeft") || keys.has("ControlRight") || keys.has("KeyC") || touchFrame.crouch,
+        pause: pauseQueued || touchFrame.pause,
         click: clickQueued,
-        shootPresses,
-        mouseDx,
-        mouseDy,
-        pointerLocked: document.pointerLockElement === canvas,
+        shootPresses: shootPresses + touchFrame.shootPresses,
+        mouseDx: mouseDx + touchFrame.lookDx,
+        mouseDy: mouseDy + touchFrame.lookDy,
+        pointerLocked,
+        lookActive: pointerLocked || touchFrame.sessionActive,
       };
       pauseQueued = false;
       clickQueued = null;

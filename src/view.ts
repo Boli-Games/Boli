@@ -23,6 +23,8 @@ import { createBlobShadows, type BlobShadowPose } from "./view/blobShadow";
 import { applyWorldBoxUVs, getCasitaWallMaterial, preloadHouseSurfaces } from "./view/houseSurfaces";
 import { tickPerfOverlay } from "./debug/perfOverlay";
 import type { CameraMode } from "./profile";
+import { getQuality } from "./quality";
+import { usesTouchInput, viewportSize } from "./platform";
 import {
   boliTemplateReady,
   createBoliCharacter,
@@ -72,6 +74,7 @@ export type ViewOpts = {
   hunterSkinId?: string;
   paused?: boolean;
   cameraMode?: CameraMode;
+  touchUi?: boolean;
 };
 
 export type GameView = {
@@ -83,10 +86,15 @@ export type GameView = {
 };
 
 export function createView(canvas: HTMLCanvasElement): GameView {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const quality = getQuality();
+  const renderer = new THREE.WebGLRenderer(
+    quality.tier === "desktop"
+      ? { canvas, antialias: true }
+      : { canvas, antialias: false, powerPreference: "low-power", stencil: false },
+  );
+  renderer.setPixelRatio(quality.pixelRatio);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
@@ -203,9 +211,9 @@ export function createView(canvas: HTMLCanvasElement): GameView {
   }
 
   function resize(): void {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    renderer.setSize(w, h, false);
+    const { w, h } = viewportSize();
+    const scale = getQuality().resolutionScale;
+    renderer.setSize(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)), false);
     fpsCamera.aspect = w / Math.max(1, h);
     fpsCamera.updateProjectionMatrix();
   }
@@ -1261,32 +1269,43 @@ function updateHud(
   } else {
     hud.banner.classList.add("hidden");
   }
+  const touchUi = Boolean(opts.touchUi);
   if (opts.role === "HUNTER") {
     hud.mode.textContent = `${state.accusationsLeft} cartuchos`;
     hud.mode.classList.toggle("on", state.accusationsLeft > 0);
     setHpBar(hud, activeHunter.hp / ROUND.hunterHp);
-    hud.hint.textContent = "Shift: correr · C / Ctrl: agachar · Esc: opciones";
+    hud.hint.textContent = touchUi
+      ? "Joystick · arrastrá para mirar"
+      : "Shift: correr · C / Ctrl: agachar · Esc: opciones";
     hud.mission.classList.add("hidden");
     hud.lockTitle.textContent = "Sos el cazador";
-    hud.lockBody.textContent =
-      "Pocos cartuchos. Pegarle a un boli te cuesta sangre. Observá quién se mueve distinto.";
+    hud.lockBody.textContent = touchUi
+      ? "Joystick a la izquierda, mirá a la derecha, dispará con el botón. Pocos cartuchos."
+      : "Pocos cartuchos. Pegarle a un boli te cuesta sangre. Observá quién se mueve distinto.";
   } else {
-    hud.mode.textContent = opts.boliMode ? "Modo boli ON" : "Q: modo boli";
+    hud.mode.textContent = opts.boliMode ? "Modo boli ON" : touchUi ? "Modo boli" : "Q: modo boli";
     hud.mode.classList.toggle("on", opts.boliMode);
     const hp = localEntity && !localEntity.downed ? localEntity.hp : 0;
     setHpBar(hud, hp / ROUND.hitsToDown);
-    hud.hint.textContent = "Shift: correr · C / Ctrl: agachar · Q: boli · Esc: opciones";
+    hud.hint.textContent = touchUi
+      ? "Joystick · arrastrá para mirar"
+      : "Shift: correr · C / Ctrl: agachar · Q: boli · Esc: opciones";
     hud.mission.classList.remove("hidden");
     hud.mission.textContent = `Misión ${mission.done}/${mission.total}: ${mission.next}`;
     hud.lockTitle.textContent = "Hacete el boli";
-    hud.lockBody.textContent =
-      "Mezclate con la manada y cumplí la misión, o sobreviví hasta que se acabe el tiempo. Quedarte solo te delata.";
+    hud.lockBody.textContent = touchUi
+      ? "Mezclate con la manada. Usá el joystick y el botón Boli para copiar el ritmo."
+      : "Mezclate con la manada y cumplí la misión, o sobreviví hasta que se acabe el tiempo. Quedarte solo te delata.";
   }
   hud.crosshair.classList.toggle("hidden", !opts.pointerLocked || Boolean(opts.paused));
   hud.lock.classList.toggle(
     "hidden",
     opts.pointerLocked || Boolean(opts.paused) || state.phase !== "PLAYING",
   );
+  const endHint = hud.end.querySelector("p");
+  if (endHint) {
+    endHint.textContent = touchUi ? "Pausa para volver al menú" : "Esc para volver al menú";
+  }
 
   if (state.phase === "PLAYING") {
     hud.end.classList.add("hidden");
@@ -1312,7 +1331,7 @@ function updateWaypoint(camera: THREE.PerspectiveCamera, hud: Hud, state: GameSt
     sx = window.innerWidth - sx;
     sy = window.innerHeight - sy;
   }
-  const margin = 52;
+  const margin = usesTouchInput() ? 88 : 52;
   const cx = window.innerWidth * 0.5;
   const cy = window.innerHeight * 0.5;
   const onScreen = !behind && wayNdc.x >= -0.92 && wayNdc.x <= 0.92 && wayNdc.y >= -0.82 && wayNdc.y <= 0.82;
